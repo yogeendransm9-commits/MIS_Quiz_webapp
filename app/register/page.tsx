@@ -39,20 +39,22 @@ export default function RegisterPage() {
 
       if (insertError) throw insertError;
 
-      // Save user details using both standard key naming variations
       if (data) {
+        // Construct participant object and save under key expected by play/page.tsx
+        const participantObj = {
+          id: data.id,
+          name: data.name,
+          team_name: data.team_no,
+          team_no: data.roll_no,
+        };
+
+        localStorage.setItem('quiz_participant', JSON.stringify(participantObj));
+
+        // Legacy individual keys fallback
         localStorage.setItem('participant_id', data.id);
         localStorage.setItem('participant_name', data.name);
-        localStorage.setItem('team_name', data.team_no || teamName.trim());
-        localStorage.setItem('team_no', String(data.roll_no || parsedTeamNo));
-
-        // Alternative keys commonly checked in Next.js quiz templates
-        localStorage.setItem('user_id', data.id);
-        localStorage.setItem('user_name', data.name);
-        localStorage.setItem('roll_no', String(data.roll_no || parsedTeamNo));
       }
 
-      // Hard redirect to force route refresh on /play
       window.location.href = '/play';
     } catch (err: any) {
       console.error('Registration error:', err);
@@ -74,7 +76,6 @@ export default function RegisterPage() {
         </div>
 
         <form onSubmit={handleJoin} className="space-y-4">
-          {/* Participant Name */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Participant Name
@@ -92,7 +93,6 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Team Name */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Team Name
@@ -110,7 +110,6 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Team Number */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Team Number
