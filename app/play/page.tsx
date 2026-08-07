@@ -30,7 +30,8 @@ export default function PlayPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'quiz_state' },
         (payload) => {
-          const newState = payload.new;
+          // Cast payload.new as any to bypass TypeScript payload union restrictions
+          const newState = payload.new as any;
           setQuizState(newState);
           if (newState?.status === 'active' && newState?.current_question_id) {
             fetchQuestion(newState.current_question_id);
@@ -136,7 +137,7 @@ export default function PlayPage() {
           <Trophy className="w-8 h-8 text-yellow-400" />
         </div>
         <h1 className="text-2xl font-bold tracking-tight mb-2">Quiz Finished!</h1>
-        <p className="text-slate-400 max-w-xs text-sm"> Look at the main screen to see final results.</p>
+        <p className="text-slate-400 max-w-xs text-sm">Look at the main screen to see final results.</p>
       </div>
     );
   }
