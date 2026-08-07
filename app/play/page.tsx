@@ -1,44 +1,42 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase';
-import { Card, CardContent } from '@/components/ui/card';
+import { supabase } from '@/lib/supabase';
+import { Brain, CheckCircle, Clock, Trophy, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
-import { Clock, CheckCircle2, Trophy, Loader2 } from 'lucide-react';
 
 export default function PlayPage() {
-  const [participant, setParticipant] = useState<any>(null);
   const [quizState, setQuizState] = useState<any>(null);
   const [currentQuestion, setCurrentQuestion] = useState<any>(null);
-  const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  const [hasSubmitted, setHasSubmitted] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(0);
-  const router = useRouter();
-  const supabase = createClient();
+  const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [submittedOption, setSubmittedOption] = useState<string | null>(null);
+  const [participant, setParticipant] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    const session = localStorage.getItem('quiz_participant');
-    if (!session) {
-      router.push('/register');
-      return;
+    // Get participant info from localStorage
+    const stored = localStorage.getItem('quiz_participant');
+    if (stored) {
+      setParticipant(JSON.parse(stored));
     }
-    setParticipant(JSON.parse(session));
 
-    // Fetch initial quiz state
     fetchQuizState();
 
-    // Subscribe to live quiz state updates via Supabase Realtime
+    // Listen to real-time changes on quiz_state
     const channel = supabase
-      .channel('quiz_live_state')
+      .channel('play_quiz_state')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'quiz_state' },
         (payload) => {
-          handleQuizStateUpdate(payload.new);
+          const newState = payload.new;
+          setQuizState(newState);
+          if (newState?.status === 'active' && newState?.current_question_id) {
+            fetchQuestion(newState.current_question_id);
+          } else {
+            setCurrentQuestion(null);
+          }
         }
       )
       .subscribe();
@@ -49,121 +47,181 @@ export default function PlayPage() {
   }, []);
 
   const fetchQuizState = async () => {
+    setLoading(true);
     const { data } = await supabase.from('quiz_state').select('*').single();
-    if (data) handleQuizStateUpdate(data);
+    if (data) {
+      setQuizState(data);
+      if (data.status === 'active' && data.current_question_id) {
+        await fetchQuestion(data.current_question_id);
+      }
+    }
+    setLoading(false);
   };
 
-  const handleQuizStateUpdate = async (state: any) => {
-    setQuizState(state);
-    if (state.current_question_id) {
-      const { data: question } = await supabase
+  const fetchQuestion = async (questionId: string | number) => {
+    // 1. Try matching by question_number first
+    let { data } = await supabase
+      .from('questions')
+      .select('*')
+      .eq('question_number', questionId)
+      .maybeSingle();
+
+    // 2. Fallback to matching by id
+    if (!data) {
+      const res = await supabase
         .from('questions')
         .select('*')
-        .eq('id', state.current_question_id)
-        .single();
+        .eq('id', questionId)
+        .maybeSingle();
+      data = res.data;
+    }
 
-      setCurrentQuestion(question);
+    if (data) {
+      setCurrentQuestion(data);
       setSelectedOption(null);
-      setHasSubmitted(false);
+      setSubmittedOption(null);
     }
   };
 
-  // Timer Countdown Effect
-  useEffect(() => {
-    if (!quizState?.end_time || quizState?.status !== 'active') return;
-
-    const interval = setInterval(() => {
-      const remaining = Math.max(0, Math.floor((new Date(quizState.end_time).getTime() - Date.now()) / 1000));
-      setTimeLeft(remaining);
-      if (remaining === 0) clearInterval(interval);
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [quizState?.end_time, quizState?.status]);
-
-  const submitAnswer = async (optionIndex: number) => {
-    if (hasSubmitted || timeLeft === 0) return;
-    setSelectedOption(optionIndex);
-    setHasSubmitted(true);
-
-    await supabase.from('responses').insert([
-      {
-        participant_id: participant.id,
-        question_id: currentQuestion.id,
-        selected_option: optionIndex,
-        is_correct: optionIndex === currentQuestion.correct_option,
-      },
-    ]);
+  const handleOptionSelect = (optionKey: string) => {
+    if (submittedOption) return;
+    setSelectedOption(optionKey);
   };
 
-  if (!quizState || quizState.status === 'waiting') {
+  const submitAnswer = async () => {
+    if (!selectedOption || !currentQuestion || !participant) return;
+    setSubmitting(true);
+
+    const { error } = await supabase.from('responses').insert({
+      participant_id: participant.id,
+      question_id: currentQuestion.id || currentQuestion.question_number,
+      selected_option: selectedOption,
+    });
+
+    if (!error) {
+      setSubmittedOption(selectedOption);
+    }
+    setSubmitting(false);
+  };
+
+  if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col items-center justify-center p-6 text-center">
-        <Loader2 className="w-10 h-10 animate-spin text-indigo-500 mb-4" />
-        <h2 className="text-xl font-bold">You're in! Waiting for host to start...</h2>
-        <p className="text-slate-400 text-sm mt-2">Logged in as {participant?.name}</p>
+      <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-4">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-400 mb-2" />
+        <p className="text-slate-400 text-sm">Connecting to quiz room...</p>
       </div>
     );
   }
 
+  // WAITING ROOM SCREEN
+  if (!quizState || quizState.status === 'waiting' || !currentQuestion) {
+    return (
+      <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-6 animate-pulse">
+          <Clock className="w-8 h-8 text-indigo-400" />
+        </div>
+        <h1 className="text-2xl font-bold tracking-tight mb-2">Waiting for Host</h1>
+        <p className="text-slate-400 max-w-xs text-sm">
+          You are connected! Get ready, the next question will appear here automatically when the host broadcasts it.
+        </p>
+      </div>
+    );
+  }
+
+  // COMPLETED / LEADERBOARD SCREEN
   if (quizState.status === 'completed') {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col items-center justify-center p-6 text-center space-y-4">
-        <Trophy className="w-16 h-16 text-yellow-400 animate-bounce" />
-        <h1 className="text-2xl font-bold">Quiz Completed!</h1>
-        <Button onClick={() => router.push('/leaderboard')} className="bg-indigo-600 hover:bg-indigo-500">
-          View Leaderboard
-        </Button>
+      <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mb-6">
+          <Trophy className="w-8 h-8 text-yellow-400" />
+        </div>
+        <h1 className="text-2xl font-bold tracking-tight mb-2">Quiz Finished!</h1>
+        <p className="text-slate-400 max-w-xs text-sm"> Look at the main screen to see final results.</p>
       </div>
     );
   }
 
+  // ACTIVE QUESTION SCREEN
+  const options = [
+    { key: 'A', text: currentQuestion.option_a },
+    { key: 'B', text: currentQuestion.option_b },
+    { key: 'C', text: currentQuestion.option_c },
+    { key: 'D', text: currentQuestion.option_d },
+    { key: 'E', text: currentQuestion.option_e },
+  ].filter((opt) => opt.text);
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col justify-between p-4 sm:p-6 max-w-md mx-auto">
-      {/* Header bar */}
-      <div className="space-y-3">
-        <div className="flex justify-between items-center text-sm text-slate-400">
-          <span>{participant?.name}</span>
-          <div className="flex items-center gap-1 text-indigo-400 font-semibold">
-            <Clock className="w-4 h-4" />
-            <span>{timeLeft}s</span>
+    <div className="min-h-screen bg-[#0b0f19] text-white p-4 sm:p-6 max-w-lg mx-auto flex flex-col justify-between">
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div className="flex items-center gap-2">
+            <Brain className="w-5 h-5 text-indigo-400" />
+            <span className="font-semibold text-sm">Question {currentQuestion.question_number || ''}</span>
           </div>
+          {submittedOption && (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
+              <CheckCircle className="w-3.5 h-3.5" /> Answer Submitted
+            </span>
+          )}
         </div>
-        <Progress value={(timeLeft / (quizState.duration || 30)) * 100} className="h-2 bg-slate-800" />
+
+        {/* Question Text */}
+        <div className="bg-[#131b2e] border border-slate-800 p-5 rounded-2xl shadow-xl">
+          <h2 className="text-lg font-bold leading-snug">{currentQuestion.question_text}</h2>
+        </div>
+
+        {/* Options List */}
+        <div className="space-y-3">
+          {options.map((opt) => {
+            const isSelected = selectedOption === opt.key;
+            const isSubmitted = submittedOption === opt.key;
+
+            return (
+              <button
+                key={opt.key}
+                onClick={() => handleOptionSelect(opt.key)}
+                disabled={!!submittedOption}
+                className={`w-full p-4 rounded-xl border text-left transition-all flex items-center justify-between ${
+                  isSubmitted
+                    ? 'bg-emerald-950/40 border-emerald-500 text-white'
+                    : isSelected
+                    ? 'bg-indigo-600/20 border-indigo-500 text-white'
+                    : 'bg-[#131b2e] border-slate-800 text-slate-200 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center ${
+                      isSubmitted
+                        ? 'bg-emerald-500 text-black'
+                        : isSelected
+                        ? 'bg-indigo-500 text-white'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {opt.key}
+                  </span>
+                  <span className="text-sm font-medium">{opt.text}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Main Question Body */}
-      {currentQuestion && (
-        <div className="my-auto space-y-6">
-          <h2 className="text-lg sm:text-xl font-semibold leading-snug">{currentQuestion.question_text}</h2>
-
-          <div className="grid grid-cols-1 gap-3">
-            {currentQuestion.options.map((option: string, idx: number) => {
-              const isSelected = selectedOption === idx;
-              return (
-                <button
-                  key={idx}
-                  disabled={hasSubmitted || timeLeft === 0}
-                  onClick={() => submitAnswer(idx)}
-                  className={`w-full text-left p-4 rounded-xl border transition-all text-base font-medium flex items-center justify-between active:scale-[0.98] ${
-                    isSelected
-                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg'
-                      : 'bg-slate-900 border-slate-800 text-slate-200 hover:border-slate-700'
-                  }`}
-                >
-                  <span>{option}</span>
-                  {isSelected && <CheckCircle2 className="w-5 h-5 text-white" />}
-                </button>
-              );
-            })}
-          </div>
+      {/* Submit Button */}
+      {!submittedOption && (
+        <div className="pt-6">
+          <Button
+            onClick={submitAnswer}
+            disabled={!selectedOption || submitting}
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-6 rounded-xl font-semibold text-base"
+          >
+            {submitting ? 'Submitting...' : 'Submit Answer'}
+          </Button>
         </div>
       )}
-
-      {/* Status Footer */}
-      <div className="text-center py-2 text-xs text-slate-500">
-        {hasSubmitted ? 'Answer submitted! Waiting for next question...' : 'Select an answer above'}
-      </div>
     </div>
   );
 }
