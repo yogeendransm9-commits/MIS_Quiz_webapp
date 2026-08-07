@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Play, RefreshCw, CheckCircle2, Users, Trophy } from 'lucide-react';
+import { Play, RefreshCw, CheckCircle2, Users, Trophy, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function AdminDashboardPage() {
@@ -10,6 +10,7 @@ export default function AdminDashboardPage() {
   const [quizState, setQuizState] = useState<any>(null);
   const [participantsCount, setParticipantsCount] = useState<number>(0);
   const [loading, setLoading] = useState(false);
+  const [fetchingQuestions, setFetchingQuestions] = useState(true);
 
   useEffect(() => {
     fetchQuestions();
@@ -31,8 +32,19 @@ export default function AdminDashboardPage() {
   }, []);
 
   const fetchQuestions = async () => {
-    const { data } = await supabase.from('questions').select('*').order('id', { ascending: true });
-    if (data) setQuestions(data);
+    setFetchingQuestions(true);
+    // Fetch and order by question_number instead of id
+    const { data, error } = await supabase
+      .from('questions')
+      .select('*')
+      .order('question_number', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching questions:', error);
+    } else if (data) {
+      setQuestions(data);
+    }
+    setFetchingQuestions(false);
   };
 
   const fetchQuizState = async () => {
@@ -45,7 +57,7 @@ export default function AdminDashboardPage() {
     setParticipantsCount(count || 0);
   };
 
-  const broadcastQuestion = async (questionId: number) => {
+  const broadcastQuestion = async (questionId: string | number) => {
     setLoading(true);
     const endTime = new Date(Date.now() + 30 * 1000).toISOString();
 
@@ -123,43 +135,63 @@ export default function AdminDashboardPage() {
       </div>
 
       <div className="space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Questions Bank</h2>
-        <div className="grid grid-cols-1 gap-4">
-          {questions.map((q, index) => {
-            const isCurrent = quizState?.current_question_id === q.id && quizState?.status === 'active';
-            return (
-              <div
-                key={q.id}
-                className={`p-5 rounded-xl border transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${
-                  isCurrent
-                    ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10'
-                    : 'bg-[#131b2e] border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-indigo-400 uppercase">Question {index + 1}</span>
-                    {isCurrent && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-500/10 text-green-400 border border-green-500/30">
-                        <CheckCircle2 className="w-3 h-3" /> LIVE NOW
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="text-base font-semibold text-slate-100">{q.question_text}</h3>
-                </div>
-
-                <Button
-                  onClick={() => broadcastQuestion(q.id)}
-                  disabled={loading}
-                  className={isCurrent ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}
-                >
-                  <Play className="w-4 h-4 mr-2 fill-current" />
-                  {isCurrent ? 'Re-push Question' : 'Broadcast Live'}
-                </Button>
-              </div>
-            );
-          })}
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Questions Bank ({questions.length})</h2>
+          <Button variant="ghost" size="sm" onClick={fetchQuestions} className="text-xs text-slate-400 hover:text-white">
+            <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh List
+          </Button>
         </div>
+
+        {fetchingQuestions ? (
+          <div className="p-8 text-center bg-[#131b2e] border border-slate-800 rounded-xl text-slate-400 flex items-center justify-center gap-2">
+            <Loader2 className="w-5 h-5 animate-spin text-indigo-400" /> Loading questions from database...
+          </div>
+        ) : questions.length === 0 ? (
+          <div className="p-8 text-center bg-[#131b2e] border border-slate-800 rounded-xl text-slate-400 space-y-2">
+            <p className="font-semibold text-slate-200">No questions found</p>
+            <p className="text-xs text-slate-500">
+              If you ran the SQL insert, check Supabase Row Level Security (RLS) policies for the `questions` table to ensure read access is enabled.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {questions.map((q) => {
+              const qId = q.id || q.question_number;
+              const isCurrent = quizState?.current_question_id === qId && quizState?.status === 'active';
+              return (
+                <div
+                  key={qId}
+                  className={`p-5 rounded-xl border transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${
+                    isCurrent
+                      ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10'
+                      : 'bg-[#131b2e] border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-indigo-400 uppercase">Question {q.question_number || q.id}</span>
+                      {isCurrent && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-500/10 text-green-400 border border-green-500/30">
+                          <CheckCircle2 className="w-3 h-3" /> LIVE NOW
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-base font-semibold text-slate-100">{q.question_text}</h3>
+                  </div>
+
+                  <Button
+                    onClick={() => broadcastQuestion(qId)}
+                    disabled={loading}
+                    className={isCurrent ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}
+                  >
+                    <Play className="w-4 h-4 mr-2 fill-current" />
+                    {isCurrent ? 'Re-push Question' : 'Broadcast Live'}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
