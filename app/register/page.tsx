@@ -1,12 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { User, Users, Hash, Sparkles } from 'lucide-react';
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [name, setName] = useState('');
   const [teamName, setTeamName] = useState('');
   const [teamNo, setTeamNo] = useState('');
@@ -24,13 +22,15 @@ export default function RegisterPage() {
     setError(null);
 
     try {
+      const parsedTeamNo = parseInt(teamNo.trim(), 10) || 1;
+
       const { data, error: insertError } = await supabase
         .from('participants')
         .insert([
           {
             name: name.trim(),
             team_no: teamName.trim(), // Maps Team Name input to team_no column
-            roll_no: parseInt(teamNo.trim(), 10) || 1, // Maps Team Number input to roll_no column
+            roll_no: parsedTeamNo,     // Maps Team Number input to roll_no column
             score: 0,
           },
         ])
@@ -39,16 +39,23 @@ export default function RegisterPage() {
 
       if (insertError) throw insertError;
 
-      // Persist session details to localStorage
+      // Save user details using both standard key naming variations
       if (data) {
         localStorage.setItem('participant_id', data.id);
         localStorage.setItem('participant_name', data.name);
-        localStorage.setItem('team_name', data.team_no || '');
-        localStorage.setItem('team_no', String(data.roll_no));
+        localStorage.setItem('team_name', data.team_no || teamName.trim());
+        localStorage.setItem('team_no', String(data.roll_no || parsedTeamNo));
+
+        // Alternative keys commonly checked in Next.js quiz templates
+        localStorage.setItem('user_id', data.id);
+        localStorage.setItem('user_name', data.name);
+        localStorage.setItem('roll_no', String(data.roll_no || parsedTeamNo));
       }
 
-      router.push('/play');
+      // Hard redirect to force route refresh on /play
+      window.location.href = '/play';
     } catch (err: any) {
+      console.error('Registration error:', err);
       setError(err.message || 'Failed to join event. Please try again.');
     } finally {
       setLoading(false);
