@@ -5,3 +5,5 @@ export const createClient = () => {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   return createSupabaseClient(supabaseUrl, supabaseAnonKey);
 };
+
+export const supabase = createClient();
