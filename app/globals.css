@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 98%;
+    --card: 222 40% 11%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 44% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 222 30% 18%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 222 30% 16%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 199 89% 48%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 47% 11%;
+    --success: 142 71% 45%;
+    --success-foreground: 222 47% 11%;
+    --border: 222 30% 20%;
+    --input: 222 30% 20%;
+    --ring: 217 91% 60%;
+    --chart-1: 217 91% 60%;
+    --chart-2: 199 89% 48%;
+    --chart-3: 142 71% 45%;
+    --chart-4: 38 92% 50%;
+    --chart-5: 280 65% 60%;
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(60rem 60rem at 110% -10%, hsl(217 91% 18% / 0.35), transparent),
+      radial-gradient(50rem 50rem at -10% 10%, hsl(199 89% 22% / 0.25), transparent);
+    background-attachment: fixed;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: hsl(222 40% 11% / 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .animate-fade-in {
+    animation: fade-in 0.4s ease-out both;
+  }
+  .animate-slide-up {
+    animation: slide-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-pop {
+    animation: pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .timer-ring {
+    transition: stroke-dashoffset 1s linear;
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pop {
+  0% { transform: scale(0.92); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
