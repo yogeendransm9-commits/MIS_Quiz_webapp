@@ -1,11 +1,18 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 const getSupabaseUrl = () => {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://taeseyhaxvoosbiecxjx.supabase.co';
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    return `https://${url}`;
+  const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://taeseyhaxvoosbiecxjx.supabase.co';
+  
+  // Ensure protocol exists
+  let url = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`;
+  
+  // Strip out any trailing path or /rest/v1 if present
+  try {
+    const parsed = new URL(url);
+    return parsed.origin; // Always returns clean "https://domain.supabase.co"
+  } catch {
+    return 'https://taeseyhaxvoosbiecxjx.supabase.co';
   }
-  return url.replace(/\/rest\/v1\/?$/, '');
 };
 
 const getSupabaseKey = () => {
@@ -16,7 +23,6 @@ export const createClient = () => {
   return createSupabaseClient(getSupabaseUrl(), getSupabaseKey());
 };
 
-// Use any to prevent generic type assignment mismatches
 let supabaseInstance: any = null;
 
 export const supabase = new Proxy({} as ReturnType<typeof createClient>, {
