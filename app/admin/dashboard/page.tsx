@@ -33,7 +33,7 @@ export default function AdminDashboardPage() {
 
   const fetchQuestions = async () => {
     setFetchingQuestions(true);
-    // Fetch and order by question_number instead of id
+    // Fetch ordered by question_number so questions 1 to 80 display sequentially
     const { data, error } = await supabase
       .from('questions')
       .select('*')
@@ -57,13 +57,14 @@ export default function AdminDashboardPage() {
     setParticipantsCount(count || 0);
   };
 
-  const broadcastQuestion = async (questionId: string | number) => {
+  const broadcastQuestion = async (q: any) => {
     setLoading(true);
     const endTime = new Date(Date.now() + 30 * 1000).toISOString();
+    const questionIdentifier = q.question_number ?? q.id;
 
     const { data, error } = await supabase
       .from('quiz_state')
-      .upsert({ id: 1, status: 'active', current_question_id: questionId, end_time: endTime })
+      .upsert({ id: 1, status: 'active', current_question_id: questionIdentifier, end_time: endTime })
       .select()
       .single();
 
@@ -136,8 +137,15 @@ export default function AdminDashboardPage() {
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Questions Bank ({questions.length})</h2>
-          <Button variant="ghost" size="sm" onClick={fetchQuestions} className="text-xs text-slate-400 hover:text-white">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+            Questions Bank ({questions.length})
+          </h2>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={fetchQuestions}
+            className="text-xs text-slate-400 hover:text-white"
+          >
             <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh List
           </Button>
         </div>
@@ -150,17 +158,20 @@ export default function AdminDashboardPage() {
           <div className="p-8 text-center bg-[#131b2e] border border-slate-800 rounded-xl text-slate-400 space-y-2">
             <p className="font-semibold text-slate-200">No questions found</p>
             <p className="text-xs text-slate-500">
-              If you ran the SQL insert, check Supabase Row Level Security (RLS) policies for the `questions` table to ensure read access is enabled.
+              Check if Row Level Security (RLS) on the `questions` table in Supabase allows SELECT access.
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4">
-            {questions.map((q) => {
-              const qId = q.id || q.question_number;
-              const isCurrent = quizState?.current_question_id === qId && quizState?.status === 'active';
+            {questions.map((q, index) => {
+              const questionIdentifier = q.question_number ?? q.id;
+              const isCurrent =
+                (quizState?.current_question_id === questionIdentifier || quizState?.current_question_id === q.id) &&
+                quizState?.status === 'active';
+
               return (
                 <div
-                  key={qId}
+                  key={q.id || index}
                   className={`p-5 rounded-xl border transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${
                     isCurrent
                       ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10'
@@ -169,7 +180,9 @@ export default function AdminDashboardPage() {
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-indigo-400 uppercase">Question {q.question_number || q.id}</span>
+                      <span className="text-xs font-bold text-indigo-400 uppercase">
+                        Question {q.question_number ?? index + 1}
+                      </span>
                       {isCurrent && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-500/10 text-green-400 border border-green-500/30">
                           <CheckCircle2 className="w-3 h-3" /> LIVE NOW
@@ -180,9 +193,13 @@ export default function AdminDashboardPage() {
                   </div>
 
                   <Button
-                    onClick={() => broadcastQuestion(qId)}
+                    onClick={() => broadcastQuestion(q)}
                     disabled={loading}
-                    className={isCurrent ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}
+                    className={
+                      isCurrent
+                        ? 'bg-green-600 hover:bg-green-500 text-white'
+                        : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                    }
                   >
                     <Play className="w-4 h-4 mr-2 fill-current" />
                     {isCurrent ? 'Re-push Question' : 'Broadcast Live'}
