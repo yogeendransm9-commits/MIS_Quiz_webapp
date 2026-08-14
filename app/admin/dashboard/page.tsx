@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Play, RefreshCw, CheckCircle2, Users, Trophy, Loader2 } from 'lucide-react';
+import { Play, RefreshCw, CheckCircle2, Users, Trophy, Loader2, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function AdminDashboardPage() {
@@ -11,6 +11,7 @@ export default function AdminDashboardPage() {
   const [participantsCount, setParticipantsCount] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [fetchingQuestions, setFetchingQuestions] = useState(true);
+  const [timerDuration, setTimerDuration] = useState<number>(10); // Default 10 seconds
 
   useEffect(() => {
     fetchQuestions();
@@ -62,7 +63,8 @@ export default function AdminDashboardPage() {
 
   const broadcastQuestion = async (q: any, index: number) => {
     setLoading(true);
-    const now = new Date().toISOString();
+    const startTime = new Date();
+    const endTime = new Date(startTime.getTime() + timerDuration * 1000);
     const targetIdx = q.question_number ? Number(q.question_number) : index + 1;
     const rowId = quizState?.id || '1786577f-3af7-4f70-872f-164d6e8a6b2f';
 
@@ -72,8 +74,8 @@ export default function AdminDashboardPage() {
         id: rowId, 
         is_live: true, 
         active_question_index: targetIdx, 
-        question_start_time: now,
-        updated_at: now
+        question_start_time: startTime.toISOString(),
+        updated_at: startTime.toISOString(),
       })
       .select()
       .single();
@@ -141,27 +143,57 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      <div className="bg-[#131b2e] border border-slate-800 p-6 rounded-2xl space-y-4 shadow-xl">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Live Status Override</h2>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            onClick={setWaitingState}
-            disabled={loading}
-            variant="outline"
-            className="border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-          >
-            <RefreshCw className="w-4 h-4 mr-2 text-slate-400" />
-            Set Waiting Room Screen
-          </Button>
-          <Button
-            onClick={endQuiz}
-            disabled={loading}
-            variant="outline"
-            className="border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
-          >
-            <Trophy className="w-4 h-4 mr-2 text-yellow-400" />
-            End Quiz & Show Leaderboard
-          </Button>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Timer Duration Picker */}
+        <div className="bg-[#131b2e] border border-slate-800 p-6 rounded-2xl space-y-3 shadow-xl">
+          <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
+            <Clock className="w-4 h-4" />
+            <span>Question Timer Duration</span>
+          </div>
+          <p className="text-xs text-slate-400">Questions will automatically disappear after this time:</p>
+          <div className="flex gap-2">
+            {[5, 10, 15, 30].map((sec) => (
+              <Button
+                key={sec}
+                onClick={() => setTimerDuration(sec)}
+                variant={timerDuration === sec ? 'default' : 'outline'}
+                className={
+                  timerDuration === sec
+                    ? 'bg-indigo-600 text-white font-bold'
+                    : 'border-slate-700 bg-slate-800/60 text-slate-300 hover:bg-slate-700'
+                }
+              >
+                {sec}s
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Live Overrides */}
+        <div className="bg-[#131b2e] border border-slate-800 p-6 rounded-2xl space-y-3 shadow-xl flex flex-col justify-between">
+          <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Room Actions</span>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={setWaitingState}
+              disabled={loading}
+              variant="outline"
+              size="sm"
+              className="border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1 text-slate-400" />
+              Reset Room
+            </Button>
+            <Button
+              onClick={endQuiz}
+              disabled={loading}
+              variant="outline"
+              size="sm"
+              className="border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
+            >
+              <Trophy className="w-3.5 h-3.5 mr-1 text-yellow-400" />
+              End Quiz
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -182,14 +214,11 @@ export default function AdminDashboardPage() {
 
         {fetchingQuestions ? (
           <div className="p-8 text-center bg-[#131b2e] border border-slate-800 rounded-xl text-slate-400 flex items-center justify-center gap-2">
-            <Loader2 className="w-5 h-5 animate-spin text-indigo-400" /> Loading questions from database...
+            <Loader2 className="w-5 h-5 animate-spin text-indigo-400" /> Loading questions...
           </div>
         ) : questions.length === 0 ? (
           <div className="p-8 text-center bg-[#131b2e] border border-slate-800 rounded-xl text-slate-400 space-y-2">
             <p className="font-semibold text-slate-200">No questions found</p>
-            <p className="text-xs text-slate-500">
-              Check if Row Level Security (RLS) on the `questions` table in Supabase allows SELECT access.
-            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4">
@@ -213,7 +242,7 @@ export default function AdminDashboardPage() {
                       </span>
                       {isCurrent && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-500/10 text-green-400 border border-green-500/30">
-                          <CheckCircle2 className="w-3 h-3" /> LIVE NOW
+                          <CheckCircle2 className="w-3 h-3" /> LIVE NOW ({timerDuration}s)
                         </span>
                       )}
                     </div>
@@ -230,7 +259,7 @@ export default function AdminDashboardPage() {
                     }
                   >
                     <Play className="w-4 h-4 mr-2 fill-current" />
-                    {isCurrent ? 'Re-push Question' : 'Broadcast Live'}
+                    Broadcast ({timerDuration}s)
                   </Button>
                 </div>
               );
