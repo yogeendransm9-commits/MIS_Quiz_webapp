@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button';
 export default function PlayPage() {
   const [quizState, setQuizState] = useState<any>(null);
   const [currentQuestion, setCurrentQuestion] = useState<any>(null);
-  const [selectedOption, setSelectedOption] = useState<string | null>(null);
-  const [submittedOption, setSubmittedOption] = useState<string | null>(null);
+  const [selectedOptionIndex, setSelectedOptionIndex] = useState<number | null>(null);
+  const [submittedOptionIndex, setSubmittedOptionIndex] = useState<number | null>(null);
   const [participant, setParticipant] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -17,7 +17,11 @@ export default function PlayPage() {
   useEffect(() => {
     const stored = localStorage.getItem('quiz_participant');
     if (stored) {
-      setParticipant(JSON.parse(stored));
+      try {
+        setParticipant(JSON.parse(stored));
+      } catch (e) {
+        console.error('Error parsing participant from localStorage:', e);
+      }
     }
 
     fetchQuizState();
@@ -82,40 +86,50 @@ export default function PlayPage() {
 
     if (data) {
       setCurrentQuestion(data);
-      setSelectedOption(null);
-      setSubmittedOption(null);
+      setSelectedOptionIndex(null);
+      setSubmittedOptionIndex(null);
     }
   };
 
-  const handleOptionSelect = (optionKey: string) => {
-    if (submittedOption) return;
-    setSelectedOption(optionKey);
+  const handleOptionSelect = (index: number) => {
+    if (submittedOptionIndex !== null) return;
+    setSelectedOptionIndex(index);
   };
 
   const submitAnswer = async () => {
-    if (!selectedOption || !currentQuestion) return;
+    if (selectedOptionIndex === null || !currentQuestion) return;
 
-    // Use participant ID from localStorage or generate temporary fallback
-    const participantId = participant?.id || 'anon-' + Date.now();
+    if (!participant || !participant.id) {
+      alert('Participant session not found. Please register again!');
+      return;
+    }
 
     setSubmitting(true);
 
+    // Calculate if answer is correct (assuming currentQuestion has correct_option or correct_answer_index)
+    const isCorrect = 
+      currentQuestion.correct_option_index !== undefined
+        ? currentQuestion.correct_option_index === selectedOptionIndex
+        : false;
+
     const payload = {
-      participant_id: participantId,
+      participant_id: participant.id,
       question_id: currentQuestion.id,
-      selected_option: selectedOption,
+      selected_option: selectedOptionIndex, // stores integer 0, 1, 2, etc.
+      is_correct: isCorrect,
+      answered_at: new Date().toISOString(),
     };
 
-    console.log('Submitting response:', payload);
+    console.log('Submitting to answers table:', payload);
 
-    const { error } = await supabase.from('responses').insert([payload]);
+    const { error } = await supabase.from('answers').insert([payload]);
 
     if (error) {
       console.error('Error submitting answer:', error);
       alert('Submission failed: ' + error.message);
     } else {
-      console.log('Response successfully submitted!');
-      setSubmittedOption(selectedOption);
+      console.log('Successfully saved to answers table!');
+      setSubmittedOptionIndex(selectedOptionIndex);
     }
 
     setSubmitting(false);
@@ -158,12 +172,12 @@ export default function PlayPage() {
   }
 
   // ACTIVE QUESTION SCREEN
-  const options = [
-    { key: 'A', text: currentQuestion.option_a },
-    { key: 'B', text: currentQuestion.option_b },
-    { key: 'C', text: currentQuestion.option_c },
-    { key: 'D', text: currentQuestion.option_d },
-    { key: 'E', text: currentQuestion.option_e },
+  const optionList = [
+    { label: 'A', text: currentQuestion.option_a },
+    { label: 'B', text: currentQuestion.option_b },
+    { label: 'C', text: currentQuestion.option_c },
+    { label: 'D', text: currentQuestion.option_d },
+    { label: 'E', text: currentQuestion.option_e },
   ].filter((opt) => opt.text);
 
   return (
@@ -175,7 +189,7 @@ export default function PlayPage() {
             <Brain className="w-5 h-5 text-indigo-400" />
             <span className="font-semibold text-sm">Question {currentQuestion.question_number || ''}</span>
           </div>
-          {submittedOption && (
+          {submittedOptionIndex !== null && (
             <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
               <CheckCircle className="w-3.5 h-3.5" /> Answer Submitted
             </span>
@@ -189,15 +203,15 @@ export default function PlayPage() {
 
         {/* Options List */}
         <div className="space-y-3">
-          {options.map((opt) => {
-            const isSelected = selectedOption === opt.key;
-            const isSubmitted = submittedOption === opt.key;
+          {optionList.map((opt, idx) => {
+            const isSelected = selectedOptionIndex === idx;
+            const isSubmitted = submittedOptionIndex === idx;
 
             return (
               <button
-                key={opt.key}
-                onClick={() => handleOptionSelect(opt.key)}
-                disabled={!!submittedOption}
+                key={opt.label}
+                onClick={() => handleOptionSelect(idx)}
+                disabled={submittedOptionIndex !== null}
                 className={`w-full p-4 rounded-xl border text-left transition-all flex items-center justify-between ${
                   isSubmitted
                     ? 'bg-emerald-950/40 border-emerald-500 text-white'
@@ -216,7 +230,7 @@ export default function PlayPage() {
                         : 'bg-slate-800 text-slate-400'
                     }`}
                   >
-                    {opt.key}
+                    {opt.label}
                   </span>
                   <span className="text-sm font-medium">{opt.text}</span>
                 </div>
@@ -228,14 +242,14 @@ export default function PlayPage() {
 
       {/* Submit Button */}
       <div className="pt-6">
-        {submittedOption ? (
+        {submittedOptionIndex !== null ? (
           <div className="w-full text-center py-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 font-semibold text-sm">
             Answer submitted! Waiting for the next question...
           </div>
         ) : (
           <Button
             onClick={submitAnswer}
-            disabled={!selectedOption || submitting}
+            disabled={selectedOptionIndex === null || submitting}
             className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-6 rounded-xl font-semibold text-base disabled:opacity-50"
           >
             {submitting ? 'Submitting...' : 'Submit Answer'}
