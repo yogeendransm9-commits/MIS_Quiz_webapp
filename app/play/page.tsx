@@ -106,21 +106,26 @@ export default function PlayPage() {
 
     setSubmitting(true);
 
-    // Calculate if answer is correct (assuming currentQuestion has correct_option or correct_answer_index)
-    const isCorrect = 
-      currentQuestion.correct_option_index !== undefined
-        ? currentQuestion.correct_option_index === selectedOptionIndex
-        : false;
+    // 1-Based Indexing: A = 1, B = 2, C = 3, D = 4, E = 5
+    const storedOptionNumber = selectedOptionIndex + 1;
+
+    // Check if the answer matches the question's correct answer
+    const dbCorrectAnswer = 
+      currentQuestion.correct_option ?? 
+      currentQuestion.correct_answer ?? 
+      currentQuestion.answer;
+
+    const isCorrect = Number(dbCorrectAnswer) === storedOptionNumber;
 
     const payload = {
       participant_id: participant.id,
       question_id: currentQuestion.id,
-      selected_option: selectedOptionIndex, // stores integer 0, 1, 2, etc.
+      selected_option: storedOptionNumber, // Stored as 1 for A, 2 for B, 3 for C, 4 for D, 5 for E
       is_correct: isCorrect,
       answered_at: new Date().toISOString(),
     };
 
-    console.log('Submitting to answers table:', payload);
+    console.log('Submitting answer:', payload, 'Correct answer in DB:', dbCorrectAnswer);
 
     const { error } = await supabase.from('answers').insert([payload]);
 
@@ -128,7 +133,7 @@ export default function PlayPage() {
       console.error('Error submitting answer:', error);
       alert('Submission failed: ' + error.message);
     } else {
-      console.log('Successfully saved to answers table!');
+      console.log('Successfully saved to answers table! is_correct =', isCorrect);
       setSubmittedOptionIndex(selectedOptionIndex);
     }
 
