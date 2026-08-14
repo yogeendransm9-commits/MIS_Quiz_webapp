@@ -28,6 +28,7 @@ export default function PlayPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'quiz_state' },
         (payload) => {
+          console.log('Realtime event received on /play:', payload);
           const newState = payload.new as any;
           setQuizState(newState);
           if (newState?.is_live && newState?.active_question_index > 0) {
@@ -37,7 +38,9 @@ export default function PlayPage() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Realtime subscription status:', status);
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -46,8 +49,11 @@ export default function PlayPage() {
 
   const fetchQuizState = async () => {
     setLoading(true);
-    const { data } = await supabase.from('quiz_state').select('*').limit(1).single();
-    if (data) {
+    const { data, error } = await supabase.from('quiz_state').select('*').limit(1).single();
+    if (error) {
+      console.error('Error fetching quiz state:', error);
+    } else if (data) {
+      console.log('Initial quiz_state fetched:', data);
       setQuizState(data);
       if (data.is_live && data.active_question_index > 0) {
         await fetchQuestion(data.active_question_index);
@@ -59,11 +65,15 @@ export default function PlayPage() {
   const fetchQuestion = async (qIndex: number) => {
     if (!qIndex) return;
 
-    let { data } = await supabase
+    console.log('Fetching question for index:', qIndex);
+
+    let { data, error } = await supabase
       .from('questions')
       .select('*')
       .eq('question_number', Number(qIndex))
       .maybeSingle();
+
+    if (error) console.error('Error fetching question by question_number:', error);
 
     if (!data) {
       const res = await supabase
@@ -72,7 +82,10 @@ export default function PlayPage() {
         .eq('id', qIndex)
         .maybeSingle();
       data = res.data;
+      if (res.error) console.error('Error fetching question by id:', res.error);
     }
+
+    console.log('Fetched question data:', data);
 
     if (data) {
       setCurrentQuestion(data);
@@ -96,7 +109,9 @@ export default function PlayPage() {
       selected_option: selectedOption,
     });
 
-    if (!error) {
+    if (error) {
+      console.error('Error submitting answer:', error);
+    } else {
       setSubmittedOption(selectedOption);
     }
     setSubmitting(false);
