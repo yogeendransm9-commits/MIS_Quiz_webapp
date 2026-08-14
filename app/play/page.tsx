@@ -23,18 +23,20 @@ export default function PlayPage() {
     fetchQuizState();
 
     const channel = supabase
-      .channel('play_quiz_state')
+      .channel('play_quiz_state_channel')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'quiz_state' },
         (payload) => {
           console.log('Realtime event received on /play:', payload);
           const newState = payload.new as any;
-          setQuizState(newState);
-          if (newState?.is_live && newState?.active_question_index > 0) {
-            fetchQuestion(newState.active_question_index);
-          } else {
-            setCurrentQuestion(null);
+          if (newState) {
+            setQuizState(newState);
+            if (newState.is_live && newState.active_question_index > 0) {
+              fetchQuestion(newState.active_question_index);
+            } else {
+              setCurrentQuestion(null);
+            }
           }
         }
       )
@@ -49,8 +51,7 @@ export default function PlayPage() {
 
   const fetchQuizState = async () => {
     setLoading(true);
-    // Query without .single() to prevent HTTP 406 error if row format varies
-    const { data, error } = await supabase.from('quiz_state').select('*').limit(1);
+    const { data, error } = await supabase.from('quiz_state').select('*');
     
     if (error) {
       console.error('Error fetching quiz state:', error);
@@ -61,6 +62,8 @@ export default function PlayPage() {
       if (state.is_live && state.active_question_index > 0) {
         await fetchQuestion(state.active_question_index);
       }
+    } else {
+      console.log('No rows returned from quiz_state. Check table contents or RLS.');
     }
     setLoading(false);
   };

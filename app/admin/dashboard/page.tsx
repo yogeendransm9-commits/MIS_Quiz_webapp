@@ -47,7 +47,7 @@ export default function AdminDashboardPage() {
   };
 
   const fetchQuizState = async () => {
-    const { data, error } = await supabase.from('quiz_state').select('*').limit(1);
+    const { data, error } = await supabase.from('quiz_state').select('*');
     if (error) {
       console.error('Error fetching quiz state:', error);
     } else if (data && data.length > 0) {
