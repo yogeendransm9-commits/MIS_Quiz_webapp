@@ -33,7 +33,6 @@ export default function AdminDashboardPage() {
 
   const fetchQuestions = async () => {
     setFetchingQuestions(true);
-    // Fetch ordered by question_number so questions 1 to 80 display sequentially
     const { data, error } = await supabase
       .from('questions')
       .select('*')
@@ -48,7 +47,7 @@ export default function AdminDashboardPage() {
   };
 
   const fetchQuizState = async () => {
-    const { data } = await supabase.from('quiz_state').select('*').single();
+    const { data } = await supabase.from('quiz_state').select('*').limit(1).single();
     if (data) setQuizState(data);
   };
 
@@ -57,26 +56,47 @@ export default function AdminDashboardPage() {
     setParticipantsCount(count || 0);
   };
 
-  const broadcastQuestion = async (q: any) => {
+  const broadcastQuestion = async (q: any, index: number) => {
     setLoading(true);
-    const endTime = new Date(Date.now() + 30 * 1000).toISOString();
-    const questionIdentifier = q.question_number ?? q.id;
+    const now = new Date().toISOString();
+    const targetIdx = q.question_number ? Number(q.question_number) : index + 1;
+
+    // Use existing row id if present, or upsert by row
+    const rowId = quizState?.id || '1786577f-3af7-4f70-872f-164d6e8a6b2f';
 
     const { data, error } = await supabase
       .from('quiz_state')
-      .upsert({ id: 1, status: 'active', current_question_id: questionIdentifier, end_time: endTime })
+      .upsert({ 
+        id: rowId, 
+        is_live: true, 
+        active_question_index: targetIdx, 
+        question_start_time: now,
+        updated_at: now
+      })
       .select()
       .single();
 
-    if (!error) setQuizState(data);
+    if (error) {
+      console.error('Broadcast error:', error);
+    } else if (data) {
+      setQuizState(data);
+    }
     setLoading(false);
   };
 
   const setWaitingState = async () => {
     setLoading(true);
+    const rowId = quizState?.id || '1786577f-3af7-4f70-872f-164d6e8a6b2f';
+
     const { data, error } = await supabase
       .from('quiz_state')
-      .upsert({ id: 1, status: 'waiting', current_question_id: null, end_time: null })
+      .upsert({ 
+        id: rowId, 
+        is_live: false, 
+        active_question_index: 0, 
+        question_start_time: null,
+        updated_at: new Date().toISOString()
+      })
       .select()
       .single();
 
@@ -86,9 +106,17 @@ export default function AdminDashboardPage() {
 
   const endQuiz = async () => {
     setLoading(true);
+    const rowId = quizState?.id || '1786577f-3af7-4f70-872f-164d6e8a6b2f';
+
     const { data, error } = await supabase
       .from('quiz_state')
-      .upsert({ id: 1, status: 'completed', current_question_id: null, end_time: null })
+      .upsert({ 
+        id: rowId, 
+        is_live: false, 
+        active_question_index: -1, 
+        question_start_time: null,
+        updated_at: new Date().toISOString()
+      })
       .select()
       .single();
 
@@ -164,10 +192,8 @@ export default function AdminDashboardPage() {
         ) : (
           <div className="grid grid-cols-1 gap-4">
             {questions.map((q, index) => {
-              const questionIdentifier = q.question_number ?? q.id;
-              const isCurrent =
-                (quizState?.current_question_id === questionIdentifier || quizState?.current_question_id === q.id) &&
-                quizState?.status === 'active';
+              const qNum = q.question_number ? Number(q.question_number) : index + 1;
+              const isCurrent = quizState?.is_live && Number(quizState?.active_question_index) === qNum;
 
               return (
                 <div
@@ -181,7 +207,7 @@ export default function AdminDashboardPage() {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-indigo-400 uppercase">
-                        Question {q.question_number ?? index + 1}
+                        Question {qNum}
                       </span>
                       {isCurrent && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-500/10 text-green-400 border border-green-500/30">
@@ -193,7 +219,7 @@ export default function AdminDashboardPage() {
                   </div>
 
                   <Button
-                    onClick={() => broadcastQuestion(q)}
+                    onClick={() => broadcastQuestion(q, index)}
                     disabled={loading}
                     className={
                       isCurrent

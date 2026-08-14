@@ -15,7 +15,6 @@ export default function PlayPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    // Get participant info from localStorage
     const stored = localStorage.getItem('quiz_participant');
     if (stored) {
       setParticipant(JSON.parse(stored));
@@ -23,18 +22,16 @@ export default function PlayPage() {
 
     fetchQuizState();
 
-    // Listen to real-time changes on quiz_state
     const channel = supabase
       .channel('play_quiz_state')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'quiz_state' },
         (payload) => {
-          // Cast payload.new as any to bypass TypeScript payload union restrictions
           const newState = payload.new as any;
           setQuizState(newState);
-          if (newState?.status === 'active' && newState?.current_question_id) {
-            fetchQuestion(newState.current_question_id);
+          if (newState?.is_live && newState?.active_question_index > 0) {
+            fetchQuestion(newState.active_question_index);
           } else {
             setCurrentQuestion(null);
           }
@@ -49,30 +46,30 @@ export default function PlayPage() {
 
   const fetchQuizState = async () => {
     setLoading(true);
-    const { data } = await supabase.from('quiz_state').select('*').single();
+    const { data } = await supabase.from('quiz_state').select('*').limit(1).single();
     if (data) {
       setQuizState(data);
-      if (data.status === 'active' && data.current_question_id) {
-        await fetchQuestion(data.current_question_id);
+      if (data.is_live && data.active_question_index > 0) {
+        await fetchQuestion(data.active_question_index);
       }
     }
     setLoading(false);
   };
 
-  const fetchQuestion = async (questionId: string | number) => {
-    // 1. Try matching by question_number first
+  const fetchQuestion = async (qIndex: number) => {
+    if (!qIndex) return;
+
     let { data } = await supabase
       .from('questions')
       .select('*')
-      .eq('question_number', questionId)
+      .eq('question_number', Number(qIndex))
       .maybeSingle();
 
-    // 2. Fallback to matching by id
     if (!data) {
       const res = await supabase
         .from('questions')
         .select('*')
-        .eq('id', questionId)
+        .eq('id', qIndex)
         .maybeSingle();
       data = res.data;
     }
@@ -115,7 +112,19 @@ export default function PlayPage() {
   }
 
   // WAITING ROOM SCREEN
-  if (!quizState || quizState.status === 'waiting' || !currentQuestion) {
+  if (!quizState || !quizState.is_live || !currentQuestion || quizState.active_question_index <= 0) {
+    if (quizState?.active_question_index === -1) {
+      return (
+        <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mb-6">
+            <Trophy className="w-8 h-8 text-yellow-400" />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight mb-2">Quiz Finished!</h1>
+          <p className="text-slate-400 max-w-xs text-sm">Look at the main screen to see final results.</p>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-6 text-center">
         <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-6 animate-pulse">
@@ -125,19 +134,6 @@ export default function PlayPage() {
         <p className="text-slate-400 max-w-xs text-sm">
           You are connected! Get ready, the next question will appear here automatically when the host broadcasts it.
         </p>
-      </div>
-    );
-  }
-
-  // COMPLETED / LEADERBOARD SCREEN
-  if (quizState.status === 'completed') {
-    return (
-      <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mb-6">
-          <Trophy className="w-8 h-8 text-yellow-400" />
-        </div>
-        <h1 className="text-2xl font-bold tracking-tight mb-2">Quiz Finished!</h1>
-        <p className="text-slate-400 max-w-xs text-sm">Look at the main screen to see final results.</p>
       </div>
     );
   }
