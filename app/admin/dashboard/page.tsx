@@ -47,8 +47,12 @@ export default function AdminDashboardPage() {
   };
 
   const fetchQuizState = async () => {
-    const { data } = await supabase.from('quiz_state').select('*').limit(1).single();
-    if (data) setQuizState(data);
+    const { data, error } = await supabase.from('quiz_state').select('*').limit(1);
+    if (error) {
+      console.error('Error fetching quiz state:', error);
+    } else if (data && data.length > 0) {
+      setQuizState(data[0]);
+    }
   };
 
   const fetchParticipantCount = async () => {
@@ -60,8 +64,6 @@ export default function AdminDashboardPage() {
     setLoading(true);
     const now = new Date().toISOString();
     const targetIdx = q.question_number ? Number(q.question_number) : index + 1;
-
-    // Use existing row id if present, or upsert by row
     const rowId = quizState?.id || '1786577f-3af7-4f70-872f-164d6e8a6b2f';
 
     const { data, error } = await supabase

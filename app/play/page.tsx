@@ -49,14 +49,17 @@ export default function PlayPage() {
 
   const fetchQuizState = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('quiz_state').select('*').limit(1).single();
+    // Query without .single() to prevent HTTP 406 error if row format varies
+    const { data, error } = await supabase.from('quiz_state').select('*').limit(1);
+    
     if (error) {
       console.error('Error fetching quiz state:', error);
-    } else if (data) {
-      console.log('Initial quiz_state fetched:', data);
-      setQuizState(data);
-      if (data.is_live && data.active_question_index > 0) {
-        await fetchQuestion(data.active_question_index);
+    } else if (data && data.length > 0) {
+      const state = data[0];
+      console.log('Initial quiz_state fetched:', state);
+      setQuizState(state);
+      if (state.is_live && state.active_question_index > 0) {
+        await fetchQuestion(state.active_question_index);
       }
     }
     setLoading(false);
