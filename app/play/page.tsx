@@ -28,7 +28,6 @@ export default function PlayPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'quiz_state' },
         (payload) => {
-          console.log('Realtime event received on /play:', payload);
           const newState = payload.new as any;
           if (newState) {
             setQuizState(newState);
@@ -40,9 +39,7 @@ export default function PlayPage() {
           }
         }
       )
-      .subscribe((status) => {
-        console.log('Realtime subscription status:', status);
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
@@ -57,13 +54,10 @@ export default function PlayPage() {
       console.error('Error fetching quiz state:', error);
     } else if (data && data.length > 0) {
       const state = data[0];
-      console.log('Initial quiz_state fetched:', state);
       setQuizState(state);
       if (state.is_live && state.active_question_index > 0) {
         await fetchQuestion(state.active_question_index);
       }
-    } else {
-      console.log('No rows returned from quiz_state. Check table contents or RLS.');
     }
     setLoading(false);
   };
@@ -71,15 +65,11 @@ export default function PlayPage() {
   const fetchQuestion = async (qIndex: number) => {
     if (!qIndex) return;
 
-    console.log('Fetching question for index:', qIndex);
-
-    let { data, error } = await supabase
+    let { data } = await supabase
       .from('questions')
       .select('*')
       .eq('question_number', Number(qIndex))
       .maybeSingle();
-
-    if (error) console.error('Error fetching question by question_number:', error);
 
     if (!data) {
       const res = await supabase
@@ -88,10 +78,7 @@ export default function PlayPage() {
         .eq('id', qIndex)
         .maybeSingle();
       data = res.data;
-      if (res.error) console.error('Error fetching question by id:', res.error);
     }
-
-    console.log('Fetched question data:', data);
 
     if (data) {
       setCurrentQuestion(data);
@@ -106,20 +93,31 @@ export default function PlayPage() {
   };
 
   const submitAnswer = async () => {
-    if (!selectedOption || !currentQuestion || !participant) return;
+    if (!selectedOption || !currentQuestion) return;
+
+    // Use participant ID from localStorage or generate temporary fallback
+    const participantId = participant?.id || 'anon-' + Date.now();
+
     setSubmitting(true);
 
-    const { error } = await supabase.from('responses').insert({
-      participant_id: participant.id,
-      question_id: currentQuestion.id || currentQuestion.question_number,
+    const payload = {
+      participant_id: participantId,
+      question_id: currentQuestion.id,
       selected_option: selectedOption,
-    });
+    };
+
+    console.log('Submitting response:', payload);
+
+    const { error } = await supabase.from('responses').insert([payload]);
 
     if (error) {
       console.error('Error submitting answer:', error);
+      alert('Submission failed: ' + error.message);
     } else {
+      console.log('Response successfully submitted!');
       setSubmittedOption(selectedOption);
     }
+
     setSubmitting(false);
   };
 
@@ -229,17 +227,21 @@ export default function PlayPage() {
       </div>
 
       {/* Submit Button */}
-      {!submittedOption && (
-        <div className="pt-6">
+      <div className="pt-6">
+        {submittedOption ? (
+          <div className="w-full text-center py-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 font-semibold text-sm">
+            Answer submitted! Waiting for the next question...
+          </div>
+        ) : (
           <Button
             onClick={submitAnswer}
             disabled={!selectedOption || submitting}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-6 rounded-xl font-semibold text-base"
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-6 rounded-xl font-semibold text-base disabled:opacity-50"
           >
             {submitting ? 'Submitting...' : 'Submit Answer'}
           </Button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
