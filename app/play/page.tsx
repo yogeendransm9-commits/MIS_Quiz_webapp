@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Brain, CheckCircle, Clock, Trophy, Loader2 } from 'lucide-react';
+import { Brain, CheckCircle2, XCircle, Clock, Trophy, Loader2, Lock, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function PlayPage() {
@@ -14,6 +14,9 @@ export default function PlayPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+
+  // Default duration in seconds (can be 5, 10, 15, 30, 45, 60)
+  const QUESTION_DURATION = 30;
 
   useEffect(() => {
     const stored = localStorage.getItem('quiz_participant');
@@ -51,27 +54,20 @@ export default function PlayPage() {
     };
   }, []);
 
-  // Live timer interval calculation
+  // Timer logic
   useEffect(() => {
     if (!quizState?.is_live || !quizState?.question_start_time) {
       setTimeLeft(null);
       return;
     }
 
-    const DURATION_SEC = 10; // Auto-disappear duration
-
     const updateTimer = () => {
       const startTime = new Date(quizState.question_start_time).getTime();
       const now = new Date().getTime();
       const elapsedSec = Math.floor((now - startTime) / 1000);
-      const remaining = DURATION_SEC - elapsedSec;
+      const remaining = Math.max(0, QUESTION_DURATION - elapsedSec);
 
-      if (remaining <= 0) {
-        setTimeLeft(0);
-        setCurrentQuestion(null); // Automatically hide question when time expires
-      } else {
-        setTimeLeft(remaining);
-      }
+      setTimeLeft(remaining);
     };
 
     updateTimer();
@@ -166,45 +162,40 @@ export default function PlayPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-4">
+      <div className="h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-4">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-400 mb-2" />
-        <p className="text-slate-400 text-sm">Connecting to quiz room...</p>
+        <p className="text-slate-400 text-xs">Connecting to quiz room...</p>
       </div>
     );
   }
 
   // WAITING ROOM SCREEN
-  if (!quizState || !quizState.is_live || !currentQuestion || quizState.active_question_index <= 0 || timeLeft === 0) {
+  if (!quizState || !quizState.is_live || !currentQuestion || quizState.active_question_index <= 0) {
     if (quizState?.active_question_index === -1) {
       return (
-        <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-6 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mb-6">
-            <Trophy className="w-8 h-8 text-yellow-400" />
+        <div className="h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mb-4">
+            <Trophy className="w-7 h-7 text-yellow-400" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight mb-2">Quiz Finished!</h1>
-          <p className="text-slate-400 max-w-xs text-sm">Look at the main screen to see final results.</p>
+          <h1 className="text-xl font-bold tracking-tight mb-1">Quiz Finished!</h1>
+          <p className="text-slate-400 max-w-xs text-xs">Check the main leaderboard screen for the results.</p>
         </div>
       );
     }
 
     return (
-      <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-6 animate-pulse">
-          <Clock className="w-8 h-8 text-indigo-400" />
+      <div className="h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-4 animate-pulse">
+          <Clock className="w-7 h-7 text-indigo-400" />
         </div>
-        <h1 className="text-2xl font-bold tracking-tight mb-2">
-          {timeLeft === 0 ? "Time's Up!" : 'Waiting for Host'}
-        </h1>
-        <p className="text-slate-400 max-w-xs text-sm">
-          {timeLeft === 0
-            ? 'The response window closed. Get ready for the next question!'
-            : 'You are connected! Get ready, the next question will appear here automatically.'}
+        <h1 className="text-xl font-bold tracking-tight mb-1">Waiting for Host</h1>
+        <p className="text-slate-400 max-w-xs text-xs">
+          You are connected! Get ready, the next question will appear here as soon as the host broadcasts it.
         </p>
       </div>
     );
   }
 
-  // ACTIVE QUESTION SCREEN
   const optionList = [
     { label: 'A', text: currentQuestion.option_a },
     { label: 'B', text: currentQuestion.option_b },
@@ -213,79 +204,150 @@ export default function PlayPage() {
     { label: 'E', text: currentQuestion.option_e },
   ].filter((opt) => opt.text);
 
+  const isTimeUp = timeLeft === 0;
+  const isLockedInEarly = submittedOptionIndex !== null && !isTimeUp;
+
+  const dbCorrectIndex = 
+    (Number(currentQuestion.correct_option ?? currentQuestion.correct_answer ?? currentQuestion.answer) || 1) - 1;
+  const userGotItRight = submittedOptionIndex !== null && submittedOptionIndex === dbCorrectIndex;
+
   return (
-    <div className="min-h-screen bg-[#0b0f19] text-white p-4 sm:p-6 max-w-lg mx-auto flex flex-col justify-between">
-      <div className="space-y-6">
-        {/* Header with Live Countdown */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-          <div className="flex items-center gap-2">
-            <Brain className="w-5 h-5 text-indigo-400" />
-            <span className="font-semibold text-sm">Question {currentQuestion.question_number || ''}</span>
+    <div className="h-[100dvh] max-h-[100dvh] bg-[#0b0f19] text-white p-3 sm:p-5 max-w-md mx-auto flex flex-col justify-between overflow-hidden">
+      {/* Top Header */}
+      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+        <div className="flex items-center gap-1.5">
+          <Brain className="w-4 h-4 text-indigo-400" />
+          <span className="font-semibold text-xs tracking-tight">Question {currentQuestion.question_number || ''}</span>
+        </div>
+
+        {timeLeft !== null && (
+          <div
+            className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full font-mono font-bold text-xs ${
+              isTimeUp
+                ? 'bg-slate-800 text-slate-400'
+                : timeLeft <= 5
+                ? 'bg-rose-500/15 border border-rose-500/30 text-rose-400 animate-pulse'
+                : 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+            }`}
+          >
+            <Clock className="w-3 h-3" />
+            <span>{isTimeUp ? 'Time Ended' : `${timeLeft}s`}</span>
           </div>
-
-          {timeLeft !== null && (
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 font-mono font-bold text-sm">
-              <Clock className="w-4 h-4 animate-spin" />
-              <span>{timeLeft}s</span>
-            </div>
-          )}
-        </div>
-
-        {/* Question Text */}
-        <div className="bg-[#131b2e] border border-slate-800 p-5 rounded-2xl shadow-xl">
-          <h2 className="text-lg font-bold leading-snug">{currentQuestion.question_text}</h2>
-        </div>
-
-        {/* Options List */}
-        <div className="space-y-3">
-          {optionList.map((opt, idx) => {
-            const isSelected = selectedOptionIndex === idx;
-            const isSubmitted = submittedOptionIndex === idx;
-
-            return (
-              <button
-                key={opt.label}
-                onClick={() => handleOptionSelect(idx)}
-                disabled={submittedOptionIndex !== null || timeLeft === 0}
-                className={`w-full p-4 rounded-xl border text-left transition-all flex items-center justify-between ${
-                  isSubmitted
-                    ? 'bg-emerald-950/40 border-emerald-500 text-white'
-                    : isSelected
-                    ? 'bg-indigo-600/20 border-indigo-500 text-white'
-                    : 'bg-[#131b2e] border-slate-800 text-slate-200 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center ${
-                      isSubmitted
-                        ? 'bg-emerald-500 text-black'
-                        : isSelected
-                        ? 'bg-indigo-500 text-white'
-                        : 'bg-slate-800 text-slate-400'
-                    }`}
-                  >
-                    {opt.label}
-                  </span>
-                  <span className="text-sm font-medium">{opt.text}</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+        )}
       </div>
 
-      {/* Submit Button */}
-      <div className="pt-6">
-        {submittedOptionIndex !== null ? (
-          <div className="w-full text-center py-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 font-semibold text-sm">
-            Answer submitted! Waiting for next question...
+      {/* REVEAL BANNER (Only shows AFTER timer hits 0 to maintain integrity) */}
+      {isTimeUp ? (
+        <div
+          className={`py-2 px-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold my-1 animate-fade-in ${
+            userGotItRight
+              ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
+              : 'bg-rose-500/20 border border-rose-500/40 text-rose-300'
+          }`}
+        >
+          {userGotItRight ? (
+            <>
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>Correct Answer! 🎉</span>
+            </>
+          ) : (
+            <>
+              <XCircle className="w-4 h-4 text-rose-400" />
+              <span>
+                {submittedOptionIndex === null ? "Time's up! You didn't submit an answer" : 'Wrong Answer ❌'}
+              </span>
+            </>
+          )}
+        </div>
+      ) : isLockedInEarly ? (
+        /* Meaningful & Intuitive "Locked In" state while waiting for timer */
+        <div className="py-2 px-3 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 flex items-center justify-between my-1 animate-fade-in">
+          <div className="flex items-center gap-2">
+            <Lock className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+            <span className="text-xs font-semibold">Answer Locked</span>
+          </div>
+          <span className="text-[11px] font-mono bg-indigo-500/20 px-2 py-0.5 rounded text-indigo-200">
+            Pick: {optionList[submittedOptionIndex]?.label}
+          </span>
+        </div>
+      ) : null}
+
+      {/* Question Text Box (Compact) */}
+      <div className="bg-[#131b2e] border border-slate-800 p-3 rounded-xl shadow-lg my-1 flex-shrink-0">
+        <h2 className="text-xs sm:text-sm font-semibold leading-snug text-slate-100">
+          {currentQuestion.question_text}
+        </h2>
+      </div>
+
+      {/* Options List */}
+      <div className="flex-1 flex flex-col justify-center space-y-1.5 py-1">
+        {optionList.map((opt, idx) => {
+          const isSelected = selectedOptionIndex === idx;
+          const isSubmitted = submittedOptionIndex === idx;
+
+          // Integrity: Only highlight answers AFTER timer expires
+          const isCorrect = isTimeUp && idx === dbCorrectIndex;
+          const isWrongPick = isTimeUp && isSubmitted && idx !== dbCorrectIndex;
+
+          return (
+            <button
+              key={opt.label}
+              onClick={() => handleOptionSelect(idx)}
+              disabled={submittedOptionIndex !== null || isTimeUp}
+              className={`w-full px-3 py-2 sm:py-2.5 rounded-lg border text-left transition-all flex items-center justify-between ${
+                isCorrect
+                  ? 'bg-emerald-950/70 border-emerald-500 text-white ring-1 ring-emerald-500'
+                  : isWrongPick
+                  ? 'bg-rose-950/70 border-rose-500 text-white'
+                  : isSubmitted && !isTimeUp
+                  ? 'bg-indigo-900/40 border-indigo-500 text-white'
+                  : isSelected
+                  ? 'bg-indigo-600/20 border-indigo-500 text-white'
+                  : isLockedInEarly
+                  ? 'bg-[#131b2e]/60 border-slate-800/50 text-slate-500'
+                  : 'bg-[#131b2e] border-slate-800/80 text-slate-300 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span
+                  className={`w-5 h-5 rounded-md text-[11px] font-bold flex items-center justify-center flex-shrink-0 ${
+                    isCorrect
+                      ? 'bg-emerald-500 text-black'
+                      : isWrongPick
+                      ? 'bg-rose-500 text-white'
+                      : isSelected || isSubmitted
+                      ? 'bg-indigo-500 text-white'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {opt.label}
+                </span>
+                <span className="text-xs sm:text-sm font-normal truncate">{opt.text}</span>
+              </div>
+
+              {/* Show check or X icon only after time expires */}
+              {isCorrect && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
+              {isWrongPick && <XCircle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Bottom Action Area */}
+      <div className="pt-2 border-t border-slate-800/80 flex-shrink-0">
+        {isTimeUp ? (
+          <div className="w-full text-center py-2 bg-slate-800/40 border border-slate-700/50 rounded-xl text-slate-400 text-xs">
+            Next question starting soon...
+          </div>
+        ) : isLockedInEarly ? (
+          <div className="w-full text-center py-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-indigo-300 font-medium text-xs flex items-center justify-center gap-1.5">
+            <span>Reveal in {timeLeft}s</span>
           </div>
         ) : (
           <Button
             onClick={submitAnswer}
-            disabled={selectedOptionIndex === null || submitting || timeLeft === 0}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-6 rounded-xl font-semibold text-base disabled:opacity-50"
+            disabled={selectedOptionIndex === null || submitting || isTimeUp}
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3.5 rounded-xl font-semibold text-xs sm:text-sm disabled:opacity-50"
           >
             {submitting ? 'Submitting...' : 'Submit Answer'}
           </Button>

@@ -11,7 +11,7 @@ export default function AdminDashboardPage() {
   const [participantsCount, setParticipantsCount] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [fetchingQuestions, setFetchingQuestions] = useState(true);
-  const [timerDuration, setTimerDuration] = useState<number>(10); // Default 10 seconds
+  const [timerDuration, setTimerDuration] = useState<number>(30); // Default 30s
 
   useEffect(() => {
     fetchQuestions();
@@ -64,7 +64,6 @@ export default function AdminDashboardPage() {
   const broadcastQuestion = async (q: any, index: number) => {
     setLoading(true);
     const startTime = new Date();
-    const endTime = new Date(startTime.getTime() + timerDuration * 1000);
     const targetIdx = q.question_number ? Number(q.question_number) : index + 1;
     const rowId = quizState?.id || '1786577f-3af7-4f70-872f-164d6e8a6b2f';
 
@@ -128,39 +127,42 @@ export default function AdminDashboardPage() {
     setLoading(false);
   };
 
+  const timerOptions = [5, 10, 15, 30, 45, 60];
+
   return (
-    <div className="min-h-screen bg-[#0b0f19] text-white p-6 sm:p-10 max-w-5xl mx-auto space-y-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#131b2e] border border-slate-800 p-6 rounded-2xl shadow-xl">
+    <div className="min-h-screen bg-[#0b0f19] text-white p-4 sm:p-8 max-w-5xl mx-auto space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#131b2e] border border-slate-800 p-5 rounded-2xl shadow-xl">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Quiz Host Control Panel</h1>
-          <p className="text-sm text-slate-400">Broadcast questions live to connected devices</p>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Quiz Host Control Panel</h1>
+          <p className="text-xs sm:text-sm text-slate-400">Broadcast questions live to connected devices</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-4 py-2 rounded-xl text-indigo-400 font-semibold text-sm">
+          <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-1.5 rounded-xl text-indigo-400 font-semibold text-xs sm:text-sm">
             <Users className="w-4 h-4" />
-            <span>{participantsCount} Participants Joined</span>
+            <span>{participantsCount} Joined</span>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Timer Duration Picker */}
-        <div className="bg-[#131b2e] border border-slate-800 p-6 rounded-2xl space-y-3 shadow-xl">
+        {/* Timer Duration Picker: 5s, 10s, 15s, 30s, 45s, 60s */}
+        <div className="bg-[#131b2e] border border-slate-800 p-5 rounded-2xl space-y-3 shadow-xl">
           <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
             <Clock className="w-4 h-4" />
             <span>Question Timer Duration</span>
           </div>
-          <p className="text-xs text-slate-400">Questions will automatically disappear after this time:</p>
-          <div className="flex gap-2">
-            {[5, 10, 15, 30].map((sec) => (
+          <p className="text-xs text-slate-400">Choose the countdown window before the answer is revealed:</p>
+          <div className="flex flex-wrap gap-2">
+            {timerOptions.map((sec) => (
               <Button
                 key={sec}
+                size="sm"
                 onClick={() => setTimerDuration(sec)}
                 variant={timerDuration === sec ? 'default' : 'outline'}
                 className={
                   timerDuration === sec
-                    ? 'bg-indigo-600 text-white font-bold'
-                    : 'border-slate-700 bg-slate-800/60 text-slate-300 hover:bg-slate-700'
+                    ? 'bg-indigo-600 text-white font-bold px-3 py-1'
+                    : 'border-slate-700 bg-slate-800/60 text-slate-300 hover:bg-slate-700 px-3 py-1'
                 }
               >
                 {sec}s
@@ -169,8 +171,8 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Live Overrides */}
-        <div className="bg-[#131b2e] border border-slate-800 p-6 rounded-2xl space-y-3 shadow-xl flex flex-col justify-between">
+        {/* Room Controls */}
+        <div className="bg-[#131b2e] border border-slate-800 p-5 rounded-2xl space-y-3 shadow-xl flex flex-col justify-between">
           <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Room Actions</span>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -178,28 +180,28 @@ export default function AdminDashboardPage() {
               disabled={loading}
               variant="outline"
               size="sm"
-              className="border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+              className="border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs"
             >
-              <RefreshCw className="w-3.5 h-3.5 mr-1 text-slate-400" />
-              Reset Room
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-slate-400" />
+              Waiting Room
             </Button>
             <Button
               onClick={endQuiz}
               disabled={loading}
               variant="outline"
               size="sm"
-              className="border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
+              className="border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 text-xs"
             >
-              <Trophy className="w-3.5 h-3.5 mr-1 text-yellow-400" />
+              <Trophy className="w-3.5 h-3.5 mr-1.5 text-yellow-400" />
               End Quiz
             </Button>
           </div>
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
             Questions Bank ({questions.length})
           </h2>
           <Button
@@ -208,7 +210,7 @@ export default function AdminDashboardPage() {
             onClick={fetchQuestions}
             className="text-xs text-slate-400 hover:text-white"
           >
-            <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh List
+            <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
           </Button>
         </div>
 
@@ -217,11 +219,11 @@ export default function AdminDashboardPage() {
             <Loader2 className="w-5 h-5 animate-spin text-indigo-400" /> Loading questions...
           </div>
         ) : questions.length === 0 ? (
-          <div className="p-8 text-center bg-[#131b2e] border border-slate-800 rounded-xl text-slate-400 space-y-2">
+          <div className="p-8 text-center bg-[#131b2e] border border-slate-800 rounded-xl text-slate-400">
             <p className="font-semibold text-slate-200">No questions found</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 gap-3">
             {questions.map((q, index) => {
               const qNum = q.question_number ? Number(q.question_number) : index + 1;
               const isCurrent = quizState?.is_live && Number(quizState?.active_question_index) === qNum;
@@ -229,7 +231,7 @@ export default function AdminDashboardPage() {
               return (
                 <div
                   key={q.id || index}
-                  className={`p-5 rounded-xl border transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${
+                  className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 ${
                     isCurrent
                       ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10'
                       : 'bg-[#131b2e] border-slate-800 hover:border-slate-700'
@@ -246,20 +248,21 @@ export default function AdminDashboardPage() {
                         </span>
                       )}
                     </div>
-                    <h3 className="text-base font-semibold text-slate-100">{q.question_text}</h3>
+                    <h3 className="text-sm sm:text-base font-medium text-slate-100">{q.question_text}</h3>
                   </div>
 
                   <Button
+                    size="sm"
                     onClick={() => broadcastQuestion(q, index)}
                     disabled={loading}
                     className={
                       isCurrent
-                        ? 'bg-green-600 hover:bg-green-500 text-white'
-                        : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                        ? 'bg-green-600 hover:bg-green-500 text-white text-xs whitespace-nowrap'
+                        : 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs whitespace-nowrap'
                     }
                   >
-                    <Play className="w-4 h-4 mr-2 fill-current" />
-                    Broadcast ({timerDuration}s)
+                    <Play className="w-3.5 h-3.5 mr-1.5 fill-current" />
+                    {isCurrent ? 'Re-broadcast' : `Broadcast (${timerDuration}s)`}
                   </Button>
                 </div>
               );
