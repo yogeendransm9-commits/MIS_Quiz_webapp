@@ -11,7 +11,7 @@ export default function AdminDashboardPage() {
   const [participantsCount, setParticipantsCount] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [fetchingQuestions, setFetchingQuestions] = useState(true);
-  const [timerDuration, setTimerDuration] = useState<number>(10); // Default to 10s
+  const [timerDuration, setTimerDuration] = useState<number>(10);
 
   useEffect(() => {
     fetchQuestions();
@@ -53,6 +53,9 @@ export default function AdminDashboardPage() {
       console.error('Error fetching quiz state:', error);
     } else if (data && data.length > 0) {
       setQuizState(data[0]);
+      if (data[0].timer_duration) {
+        setTimerDuration(Number(data[0].timer_duration));
+      }
     }
   };
 
@@ -63,30 +66,27 @@ export default function AdminDashboardPage() {
 
   const broadcastQuestion = async (q: any, index: number) => {
     setLoading(true);
-    const startTime = new Date();
+    const nowIso = new Date().toISOString();
     const targetIdx = q.question_number ? Number(q.question_number) : index + 1;
     const rowId = quizState?.id || '1786577f-3af7-4f70-872f-164d6e8a6b2f';
 
-    // Pack the chosen timer duration into the question_start_time string or updated_at
-    // Example: "2026-08-17T12:00:00.000Z#10" where 10 is the duration in seconds
-    const stampedStartTime = `${startTime.toISOString()}#${timerDuration}`;
-
     const { data, error } = await supabase
       .from('quiz_state')
-      .upsert({ 
-        id: rowId, 
+      .update({ 
         is_live: true, 
         active_question_index: targetIdx, 
-        question_start_time: stampedStartTime,
-        updated_at: startTime.toISOString(),
+        question_start_time: nowIso,
+        timer_duration: timerDuration,
+        updated_at: nowIso
       })
-      .select()
-      .single();
+      .eq('id', rowId)
+      .select();
 
     if (error) {
       console.error('Broadcast error:', error);
-    } else if (data) {
-      setQuizState(data);
+      alert('Broadcast error: ' + error.message);
+    } else if (data && data.length > 0) {
+      setQuizState(data[0]);
     }
     setLoading(false);
   };
@@ -97,17 +97,18 @@ export default function AdminDashboardPage() {
 
     const { data, error } = await supabase
       .from('quiz_state')
-      .upsert({ 
-        id: rowId, 
+      .update({ 
         is_live: false, 
         active_question_index: 0, 
         question_start_time: null,
         updated_at: new Date().toISOString()
       })
-      .select()
-      .single();
+      .eq('id', rowId)
+      .select();
 
-    if (!error) setQuizState(data);
+    if (!error && data && data.length > 0) {
+      setQuizState(data[0]);
+    }
     setLoading(false);
   };
 
@@ -117,17 +118,18 @@ export default function AdminDashboardPage() {
 
     const { data, error } = await supabase
       .from('quiz_state')
-      .upsert({ 
-        id: rowId, 
+      .update({ 
         is_live: false, 
         active_question_index: -1, 
         question_start_time: null,
         updated_at: new Date().toISOString()
       })
-      .select()
-      .single();
+      .eq('id', rowId)
+      .select();
 
-    if (!error) setQuizState(data);
+    if (!error && data && data.length > 0) {
+      setQuizState(data[0]);
+    }
     setLoading(false);
   };
 
@@ -203,6 +205,7 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* Questions Bank */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
