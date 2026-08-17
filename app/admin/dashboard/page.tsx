@@ -11,7 +11,7 @@ export default function AdminDashboardPage() {
   const [participantsCount, setParticipantsCount] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [fetchingQuestions, setFetchingQuestions] = useState(true);
-  const [timerDuration, setTimerDuration] = useState<number>(30); // Default 30s
+  const [timerDuration, setTimerDuration] = useState<number>(10);
 
   useEffect(() => {
     fetchQuestions();
@@ -53,6 +53,9 @@ export default function AdminDashboardPage() {
       console.error('Error fetching quiz state:', error);
     } else if (data && data.length > 0) {
       setQuizState(data[0]);
+      if (data[0].timer_duration) {
+        setTimerDuration(Number(data[0].timer_duration));
+      }
     }
   };
 
@@ -74,6 +77,7 @@ export default function AdminDashboardPage() {
         is_live: true, 
         active_question_index: targetIdx, 
         question_start_time: startTime.toISOString(),
+        timer_duration: timerDuration,
         updated_at: startTime.toISOString(),
       })
       .select()
@@ -145,13 +149,13 @@ export default function AdminDashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Timer Duration Picker: 5s, 10s, 15s, 30s, 45s, 60s */}
+        {/* Timer Duration Picker */}
         <div className="bg-[#131b2e] border border-slate-800 p-5 rounded-2xl space-y-3 shadow-xl">
           <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
             <Clock className="w-4 h-4" />
             <span>Question Timer Duration</span>
           </div>
-          <p className="text-xs text-slate-400">Choose the countdown window before the answer is revealed:</p>
+          <p className="text-xs text-slate-400">Selected countdown window per question:</p>
           <div className="flex flex-wrap gap-2">
             {timerOptions.map((sec) => (
               <Button
@@ -171,7 +175,7 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Room Controls */}
+        {/* Room Actions */}
         <div className="bg-[#131b2e] border border-slate-800 p-5 rounded-2xl space-y-3 shadow-xl flex flex-col justify-between">
           <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Room Actions</span>
           <div className="flex flex-wrap gap-2">

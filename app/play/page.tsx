@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Brain, CheckCircle2, XCircle, Clock, Trophy, Loader2, Lock, ShieldAlert } from 'lucide-react';
+import { Brain, CheckCircle2, XCircle, Clock, Trophy, Loader2, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function PlayPage() {
@@ -14,9 +14,6 @@ export default function PlayPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
-
-  // Default duration in seconds (can be 5, 10, 15, 30, 45, 60)
-  const QUESTION_DURATION = 30;
 
   useEffect(() => {
     const stored = localStorage.getItem('quiz_participant');
@@ -54,18 +51,21 @@ export default function PlayPage() {
     };
   }, []);
 
-  // Timer logic
+  // Dynamic timer calculation matching host's selected duration
   useEffect(() => {
     if (!quizState?.is_live || !quizState?.question_start_time) {
       setTimeLeft(null);
       return;
     }
 
+    // Read host's chosen duration from quizState (defaulting to 10 if missing)
+    const duration = Number(quizState.timer_duration) || 10;
+
     const updateTimer = () => {
       const startTime = new Date(quizState.question_start_time).getTime();
       const now = new Date().getTime();
       const elapsedSec = Math.floor((now - startTime) / 1000);
-      const remaining = Math.max(0, QUESTION_DURATION - elapsedSec);
+      const remaining = Math.max(0, duration - elapsedSec);
 
       setTimeLeft(remaining);
     };
@@ -213,7 +213,7 @@ export default function PlayPage() {
 
   return (
     <div className="h-[100dvh] max-h-[100dvh] bg-[#0b0f19] text-white p-3 sm:p-5 max-w-md mx-auto flex flex-col justify-between overflow-hidden">
-      {/* Top Header */}
+      {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5">
           <Brain className="w-4 h-4 text-indigo-400" />
@@ -236,7 +236,7 @@ export default function PlayPage() {
         )}
       </div>
 
-      {/* REVEAL BANNER (Only shows AFTER timer hits 0 to maintain integrity) */}
+      {/* Answer Feedback Banner (Only after timer hits 0) */}
       {isTimeUp ? (
         <div
           className={`py-2 px-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold my-1 animate-fade-in ${
@@ -260,7 +260,6 @@ export default function PlayPage() {
           )}
         </div>
       ) : isLockedInEarly ? (
-        /* Meaningful & Intuitive "Locked In" state while waiting for timer */
         <div className="py-2 px-3 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 flex items-center justify-between my-1 animate-fade-in">
           <div className="flex items-center gap-2">
             <Lock className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
@@ -272,20 +271,19 @@ export default function PlayPage() {
         </div>
       ) : null}
 
-      {/* Question Text Box (Compact) */}
+      {/* Question Text */}
       <div className="bg-[#131b2e] border border-slate-800 p-3 rounded-xl shadow-lg my-1 flex-shrink-0">
         <h2 className="text-xs sm:text-sm font-semibold leading-snug text-slate-100">
           {currentQuestion.question_text}
         </h2>
       </div>
 
-      {/* Options List */}
+      {/* Options */}
       <div className="flex-1 flex flex-col justify-center space-y-1.5 py-1">
         {optionList.map((opt, idx) => {
           const isSelected = selectedOptionIndex === idx;
           const isSubmitted = submittedOptionIndex === idx;
 
-          // Integrity: Only highlight answers AFTER timer expires
           const isCorrect = isTimeUp && idx === dbCorrectIndex;
           const isWrongPick = isTimeUp && isSubmitted && idx !== dbCorrectIndex;
 
@@ -325,7 +323,6 @@ export default function PlayPage() {
                 <span className="text-xs sm:text-sm font-normal truncate">{opt.text}</span>
               </div>
 
-              {/* Show check or X icon only after time expires */}
               {isCorrect && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
               {isWrongPick && <XCircle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />}
             </button>
@@ -333,7 +330,7 @@ export default function PlayPage() {
         })}
       </div>
 
-      {/* Bottom Action Area */}
+      {/* Bottom Action Button */}
       <div className="pt-2 border-t border-slate-800/80 flex-shrink-0">
         {isTimeUp ? (
           <div className="w-full text-center py-2 bg-slate-800/40 border border-slate-700/50 rounded-xl text-slate-400 text-xs">
