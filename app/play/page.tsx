@@ -51,21 +51,31 @@ export default function PlayPage() {
     };
   }, []);
 
-  // Dynamic timer calculation matching host's selected duration
+  // Timer logic reading the duration directly from the host broadcast
   useEffect(() => {
     if (!quizState?.is_live || !quizState?.question_start_time) {
       setTimeLeft(null);
       return;
     }
 
-    // Read host's chosen duration from quizState (defaulting to 10 if missing)
-    const duration = Number(quizState.timer_duration) || 10;
+    const rawStartTime = String(quizState.question_start_time);
+    let durationSec = 10;
+    let baseTimeIso = rawStartTime;
+
+    // Check if stamped with '#<duration>' from dashboard
+    if (rawStartTime.includes('#')) {
+      const parts = rawStartTime.split('#');
+      baseTimeIso = parts[0];
+      durationSec = Number(parts[1]) || 10;
+    } else if (quizState.timer_duration) {
+      durationSec = Number(quizState.timer_duration);
+    }
 
     const updateTimer = () => {
-      const startTime = new Date(quizState.question_start_time).getTime();
+      const startTime = new Date(baseTimeIso).getTime();
       const now = new Date().getTime();
       const elapsedSec = Math.floor((now - startTime) / 1000);
-      const remaining = Math.max(0, duration - elapsedSec);
+      const remaining = Math.max(0, durationSec - elapsedSec);
 
       setTimeLeft(remaining);
     };
@@ -213,7 +223,7 @@ export default function PlayPage() {
 
   return (
     <div className="h-[100dvh] max-h-[100dvh] bg-[#0b0f19] text-white p-3 sm:p-5 max-w-md mx-auto flex flex-col justify-between overflow-hidden">
-      {/* Header */}
+      {/* Top Header */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5">
           <Brain className="w-4 h-4 text-indigo-400" />
@@ -236,7 +246,7 @@ export default function PlayPage() {
         )}
       </div>
 
-      {/* Answer Feedback Banner (Only after timer hits 0) */}
+      {/* Answer Feedback Banner (Revealed only after timer hits 0) */}
       {isTimeUp ? (
         <div
           className={`py-2 px-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold my-1 animate-fade-in ${
@@ -271,14 +281,14 @@ export default function PlayPage() {
         </div>
       ) : null}
 
-      {/* Question Text */}
+      {/* Question Text Box */}
       <div className="bg-[#131b2e] border border-slate-800 p-3 rounded-xl shadow-lg my-1 flex-shrink-0">
         <h2 className="text-xs sm:text-sm font-semibold leading-snug text-slate-100">
           {currentQuestion.question_text}
         </h2>
       </div>
 
-      {/* Options */}
+      {/* Options List */}
       <div className="flex-1 flex flex-col justify-center space-y-1.5 py-1">
         {optionList.map((opt, idx) => {
           const isSelected = selectedOptionIndex === idx;
@@ -330,7 +340,7 @@ export default function PlayPage() {
         })}
       </div>
 
-      {/* Bottom Action Button */}
+      {/* Bottom Sticky Action Area */}
       <div className="pt-2 border-t border-slate-800/80 flex-shrink-0">
         {isTimeUp ? (
           <div className="w-full text-center py-2 bg-slate-800/40 border border-slate-700/50 rounded-xl text-slate-400 text-xs">

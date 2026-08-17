@@ -11,7 +11,7 @@ export default function AdminDashboardPage() {
   const [participantsCount, setParticipantsCount] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [fetchingQuestions, setFetchingQuestions] = useState(true);
-  const [timerDuration, setTimerDuration] = useState<number>(10);
+  const [timerDuration, setTimerDuration] = useState<number>(10); // Default to 10s
 
   useEffect(() => {
     fetchQuestions();
@@ -53,9 +53,6 @@ export default function AdminDashboardPage() {
       console.error('Error fetching quiz state:', error);
     } else if (data && data.length > 0) {
       setQuizState(data[0]);
-      if (data[0].timer_duration) {
-        setTimerDuration(Number(data[0].timer_duration));
-      }
     }
   };
 
@@ -70,14 +67,17 @@ export default function AdminDashboardPage() {
     const targetIdx = q.question_number ? Number(q.question_number) : index + 1;
     const rowId = quizState?.id || '1786577f-3af7-4f70-872f-164d6e8a6b2f';
 
+    // Pack the chosen timer duration into the question_start_time string or updated_at
+    // Example: "2026-08-17T12:00:00.000Z#10" where 10 is the duration in seconds
+    const stampedStartTime = `${startTime.toISOString()}#${timerDuration}`;
+
     const { data, error } = await supabase
       .from('quiz_state')
       .upsert({ 
         id: rowId, 
         is_live: true, 
         active_question_index: targetIdx, 
-        question_start_time: startTime.toISOString(),
-        timer_duration: timerDuration,
+        question_start_time: stampedStartTime,
         updated_at: startTime.toISOString(),
       })
       .select()
