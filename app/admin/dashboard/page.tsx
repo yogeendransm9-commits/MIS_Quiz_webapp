@@ -11,20 +11,32 @@ import {
   Loader2, 
   Clock, 
   BarChart3, 
-  Medal, 
   Flame, 
   ExternalLink 
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
-interface LeaderboardEntry {
-  team_id: string;
-  total_score: number;
-  correct_count: number;
-  participants_count: number;
+interface TeamScore {
+  colorKey: string;
+  teamName: string;
+  badgeBg: string;
+  textColor: string;
+  totalScore: number;
+  correctAnswers: number;
+  totalMembers: number;
   members: string[];
 }
+
+// Map color prefixes to clear labels and themed styling
+const COLOR_MAP: Record<string, { name: string; bg: string; text: string }> = {
+  R: { name: 'Team Red', bg: 'bg-rose-500/15 border-rose-500/30', text: 'text-rose-400' },
+  G: { name: 'Team Green', bg: 'bg-emerald-500/15 border-emerald-500/30', text: 'text-emerald-400' },
+  B: { name: 'Team Blue', bg: 'bg-sky-500/15 border-sky-500/30', text: 'text-sky-400' },
+  Y: { name: 'Team Yellow', bg: 'bg-amber-500/15 border-amber-500/30', text: 'text-amber-400' },
+  O: { name: 'Team Orange', bg: 'bg-orange-500/15 border-orange-500/30', text: 'text-orange-400' },
+  P: { name: 'Team Purple', bg: 'bg-purple-500/15 border-purple-500/30', text: 'text-purple-400' },
+};
 
 export default function AdminDashboardPage() {
   const [questions, setQuestions] = useState<any[]>([]);
@@ -33,52 +45,50 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(false);
   const [fetchingQuestions, setFetchingQuestions] = useState(true);
   const [timerDuration, setTimerDuration] = useState<number>(10);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [showLeaderboardTab, setShowLeaderboardTab] = useState(false);
+  const [teamLeaderboard, setTeamLeaderboard] = useState<TeamScore[]>([]);
+  const [showStats, setShowStats] = useState(false);
 
   useEffect(() => {
     fetchQuestions();
     fetchQuizState();
     fetchParticipantCount();
-    fetchLeaderboardStats();
+    fetchTeamLeaderboard();
 
-    // Listen to real-time participant changes
-    const participantChannel = supabase
-      .channel('admin_participants_channel')
+    const pChannel = supabase
+      .channel('admin_dash_participants')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, () => {
         fetchParticipantCount();
-        fetchLeaderboardStats();
+        fetchTeamLeaderboard();
       })
       .subscribe();
 
-    // Listen to real-time answer submissions
-    const answersChannel = supabase
-      .channel('admin_answers_channel')
+    const aChannel = supabase
+      .channel('admin_dash_answers')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'answers' }, () => {
-        fetchLeaderboardStats();
+        fetchTeamLeaderboard();
       })
       .subscribe();
 
     return () => {
-      supabase.removeChannel(participantChannel);
-      supabase.removeChannel(answersChannel);
+      supabase.removeChannel(pChannel);
+      supabase.removeChannel(aChannel);
     };
   }, []);
 
   const fetchQuestions = async () => {
     setFetchingQuestions(true);
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('questions')
       .select('*')
       .order('question_number', { ascending: true });
 
-    if (!error && data) setQuestions(data);
+    if (data) setQuestions(data);
     setFetchingQuestions(false);
   };
 
   const fetchQuizState = async () => {
-    const { data, error } = await supabase.from('quiz_state').select('*');
-    if (!error && data && data.length > 0) {
+    const { data } = await supabase.from('quiz_state').select('*');
+    if (data && data.length > 0) {
       setQuizState(data[0]);
       if (data[0].timer_duration) {
         setTimerDuration(Number(data[0].timer_duration));
@@ -91,49 +101,61 @@ export default function AdminDashboardPage() {
     setParticipantsCount(count || 0);
   };
 
-  // Calculates live standings grouped by Team ID
-  const fetchLeaderboardStats = async () => {
+  // Group by Color prefix (R, G, B, etc.)
+  const fetchTeamLeaderboard = async () => {
     const { data: participants } = await supabase.from('participants').select('id, name, team_id');
     const { data: answers } = await supabase.from('answers').select('participant_id, is_correct');
 
     if (!participants) return;
 
-    const teamMap: Record<string, LeaderboardEntry> = {};
+    const teamGroups: Record<string, TeamScore> = {};
 
     participants.forEach((p) => {
-      const tid = p.team_id || 'Solo';
-      if (!teamMap[tid]) {
-        teamMap[tid] = {
-          team_id: tid,
-          total_score: 0,
-          correct_count: 0,
-          participants_count: 0,
+      const rawId = (p.team_id || 'U').trim().toUpperCase();
+      const colorChar = rawId.charAt(0) || 'U';
+      const colorMeta = COLOR_MAP[colorChar] || {
+        name: `Team ${colorChar}`,
+        bg: 'bg-slate-800/60 border-slate-700',
+        text: 'text-indigo-400',
+      };
+
+      if (!teamGroups[colorChar]) {
+        teamGroups[colorChar] = {
+          colorKey: colorChar,
+          teamName: colorMeta.name,
+          badgeBg: colorMeta.bg,
+          textColor: colorMeta.text,
+          totalScore: 0,
+          correctAnswers: 0,
+          totalMembers: 0,
           members: [],
         };
       }
-      teamMap[tid].participants_count += 1;
-      teamMap[tid].members.push(p.name);
+
+      teamGroups[colorChar].totalMembers += 1;
+      teamGroups[colorChar].members.push(`${p.name} (${rawId})`);
     });
 
     if (answers) {
-      const participantToTeam: Record<string, string> = {};
+      const userToColorGroup: Record<string, string> = {};
       participants.forEach((p) => {
-        participantToTeam[p.id] = p.team_id || 'Solo';
+        const rawId = (p.team_id || 'U').trim().toUpperCase();
+        userToColorGroup[p.id] = rawId.charAt(0) || 'U';
       });
 
       answers.forEach((ans) => {
-        if (ans.is_correct && participantToTeam[ans.participant_id]) {
-          const tid = participantToTeam[ans.participant_id];
-          if (teamMap[tid]) {
-            teamMap[tid].correct_count += 1;
-            teamMap[tid].total_score += 10; // 10 points per correct answer
+        if (ans.is_correct) {
+          const colorKey = userToColorGroup[ans.participant_id];
+          if (colorKey && teamGroups[colorKey]) {
+            teamGroups[colorKey].correctAnswers += 1;
+            teamGroups[colorKey].totalScore += 10; // 10 pts per correct answer
           }
         }
       });
     }
 
-    const sorted = Object.values(teamMap).sort((a, b) => b.total_score - a.total_score);
-    setLeaderboard(sorted);
+    const sortedTeams = Object.values(teamGroups).sort((a, b) => b.totalScore - a.totalScore);
+    setTeamLeaderboard(sortedTeams);
   };
 
   const broadcastQuestion = async (q: any, index: number) => {
@@ -205,11 +227,11 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#0b0f19] text-white p-4 sm:p-8 max-w-5xl mx-auto space-y-6">
-      {/* Header bar */}
+      {/* Top Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#131b2e] border border-slate-800 p-5 rounded-2xl shadow-xl">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Quiz Host Control Panel</h1>
-          <p className="text-xs sm:text-sm text-slate-400">Broadcast questions live and track real-time scores</p>
+          <p className="text-xs sm:text-sm text-slate-400">Broadcast questions & track unified color team scores</p>
         </div>
         <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-2 rounded-xl text-indigo-400 font-semibold text-xs sm:text-sm">
@@ -219,15 +241,15 @@ export default function AdminDashboardPage() {
 
           <Button
             size="sm"
-            onClick={() => setShowLeaderboardTab(!showLeaderboardTab)}
+            onClick={() => setShowStats(!showStats)}
             className={
-              showLeaderboardTab
+              showStats
                 ? 'bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs'
                 : 'bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs'
             }
           >
             <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
-            {showLeaderboardTab ? 'Hide Live Stats' : 'Show Live Stats'}
+            {showStats ? 'Hide Team Standings' : 'Show Team Standings'}
           </Button>
 
           <Link href="/leaderboard" target="_blank">
@@ -243,69 +265,47 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* LIVE LEADERBOARD / STATS ACCORDION */}
-      {showLeaderboardTab && (
+      {/* COMBINED COLOR TEAM STANDINGS */}
+      {showStats && (
         <div className="bg-[#131b2e] border border-amber-500/30 p-5 rounded-2xl space-y-4 shadow-2xl animate-fade-in">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
               <Trophy className="w-4 h-4" />
-              <span>Live Team Standings</span>
+              <span>Color Team Leaderboard (Aggregated)</span>
             </div>
             <Button
               variant="ghost"
               size="sm"
-              onClick={fetchLeaderboardStats}
+              onClick={fetchTeamLeaderboard}
               className="text-xs text-slate-400 hover:text-white"
             >
-              <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh Scores
+              <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
             </Button>
           </div>
 
-          {leaderboard.length === 0 ? (
-            <p className="text-xs text-slate-500 text-center py-4">No submissions recorded yet.</p>
+          {teamLeaderboard.length === 0 ? (
+            <p className="text-xs text-slate-500 text-center py-4">No team activity yet.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {leaderboard.map((team, idx) => (
+              {teamLeaderboard.map((team, idx) => (
                 <div
-                  key={team.team_id}
-                  className={`p-3 rounded-xl border flex items-center justify-between ${
-                    idx === 0
-                      ? 'bg-amber-500/10 border-amber-500/40 text-white'
-                      : idx === 1
-                      ? 'bg-slate-300/10 border-slate-400/30 text-white'
-                      : idx === 2
-                      ? 'bg-amber-700/10 border-amber-700/30 text-white'
-                      : 'bg-[#0b0f19] border-slate-800 text-slate-300'
-                  }`}
+                  key={team.colorKey}
+                  className={`p-4 rounded-xl border flex flex-col justify-between space-y-2 ${team.badgeBg}`}
                 >
-                  <div className="flex items-center gap-2.5">
-                    <div
-                      className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
-                        idx === 0
-                          ? 'bg-amber-400 text-black'
-                          : idx === 1
-                          ? 'bg-slate-300 text-black'
-                          : idx === 2
-                          ? 'bg-amber-700 text-white'
-                          : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {idx + 1}
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold flex items-center gap-1.5">
-                        <span>Team {team.team_id}</span>
-                        {idx === 0 && <Flame className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />}
-                      </div>
-                      <span className="text-[10px] text-slate-400">
-                        {team.correct_count} correct • {team.participants_count} {team.participants_count === 1 ? 'member' : 'members'}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-full bg-slate-900/80 border border-white/10 text-white font-bold text-xs flex items-center justify-center">
+                        #{idx + 1}
                       </span>
+                      <h3 className={`font-bold text-sm ${team.textColor}`}>{team.teamName}</h3>
+                      {idx === 0 && <Flame className="w-4 h-4 text-amber-400 fill-amber-400" />}
                     </div>
+                    <span className="text-lg font-extrabold text-white font-mono">{team.totalScore} pts</span>
                   </div>
 
-                  <div className="text-right">
-                    <span className="text-base font-extrabold text-indigo-400 font-mono">{team.total_score}</span>
-                    <span className="text-[10px] text-slate-500 block">pts</span>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-800/60 pt-2">
+                    <span>{team.correctAnswers} total correct</span>
+                    <span>{team.totalMembers} active {team.totalMembers === 1 ? 'player' : 'players'}</span>
                   </div>
                 </div>
               ))}
@@ -314,7 +314,7 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {/* Control Tools Grid */}
+      {/* Control Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Timer Duration Picker */}
         <div className="bg-[#131b2e] border border-slate-800 p-5 rounded-2xl space-y-3 shadow-xl">
