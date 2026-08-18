@@ -28,14 +28,14 @@ interface TeamScore {
   members: string[];
 }
 
-// Map color prefixes to clear labels and themed styling
+// Map color prefixes to clear labels like "Team R", "Team G" with distinct color styling
 const COLOR_MAP: Record<string, { name: string; bg: string; text: string }> = {
-  R: { name: 'Team Red', bg: 'bg-rose-500/15 border-rose-500/30', text: 'text-rose-400' },
-  G: { name: 'Team Green', bg: 'bg-emerald-500/15 border-emerald-500/30', text: 'text-emerald-400' },
-  B: { name: 'Team Blue', bg: 'bg-sky-500/15 border-sky-500/30', text: 'text-sky-400' },
-  Y: { name: 'Team Yellow', bg: 'bg-amber-500/15 border-amber-500/30', text: 'text-amber-400' },
-  O: { name: 'Team Orange', bg: 'bg-orange-500/15 border-orange-500/30', text: 'text-orange-400' },
-  P: { name: 'Team Purple', bg: 'bg-purple-500/15 border-purple-500/30', text: 'text-purple-400' },
+  R: { name: 'Team R', bg: 'bg-rose-500/15 border-rose-500/30', text: 'text-rose-400' },
+  G: { name: 'Team G', bg: 'bg-emerald-500/15 border-emerald-500/30', text: 'text-emerald-400' },
+  B: { name: 'Team B', bg: 'bg-sky-500/15 border-sky-500/30', text: 'text-sky-400' },
+  Y: { name: 'Team Y', bg: 'bg-amber-500/15 border-amber-500/30', text: 'text-amber-400' },
+  O: { name: 'Team O', bg: 'bg-orange-500/15 border-orange-500/30', text: 'text-orange-400' },
+  P: { name: 'Team P', bg: 'bg-purple-500/15 border-purple-500/30', text: 'text-purple-400' },
 };
 
 export default function AdminDashboardPage() {
@@ -101,7 +101,7 @@ export default function AdminDashboardPage() {
     setParticipantsCount(count || 0);
   };
 
-  // Group by Color prefix (R, G, B, etc.)
+  // Group by Letter prefix (R, G, B, etc.)
   const fetchTeamLeaderboard = async () => {
     const { data: participants } = await supabase.from('participants').select('id, name, team_id');
     const { data: answers } = await supabase.from('answers').select('participant_id, is_correct');
@@ -231,7 +231,7 @@ export default function AdminDashboardPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#131b2e] border border-slate-800 p-5 rounded-2xl shadow-xl">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Quiz Host Control Panel</h1>
-          <p className="text-xs sm:text-sm text-slate-400">Broadcast questions & track unified color team scores</p>
+          <p className="text-xs sm:text-sm text-slate-400">Broadcast questions & track aggregated Team Letter scores</p>
         </div>
         <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-2 rounded-xl text-indigo-400 font-semibold text-xs sm:text-sm">
@@ -265,13 +265,13 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* COMBINED COLOR TEAM STANDINGS */}
+      {/* AGGREGATED TEAM LEADERBOARD */}
       {showStats && (
         <div className="bg-[#131b2e] border border-amber-500/30 p-5 rounded-2xl space-y-4 shadow-2xl animate-fade-in">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
               <Trophy className="w-4 h-4" />
-              <span>Color Team Leaderboard (Aggregated)</span>
+              <span>Team Letter Leaderboard (e.g. Team R, Team G)</span>
             </div>
             <Button
               variant="ghost"
@@ -297,7 +297,7 @@ export default function AdminDashboardPage() {
                       <span className="w-6 h-6 rounded-full bg-slate-900/80 border border-white/10 text-white font-bold text-xs flex items-center justify-center">
                         #{idx + 1}
                       </span>
-                      <h3 className={`font-bold text-sm ${team.textColor}`}>{team.teamName}</h3>
+                      <h3 className={`font-bold text-base ${team.textColor}`}>{team.teamName}</h3>
                       {idx === 0 && <Flame className="w-4 h-4 text-amber-400 fill-amber-400" />}
                     </div>
                     <span className="text-lg font-extrabold text-white font-mono">{team.totalScore} pts</span>
