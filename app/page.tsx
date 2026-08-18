@@ -32,7 +32,7 @@ export default function HomePage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Enforce 1 alphabet character + 1-2 numbers (e.g., R1, G10, B24)
+  // Enforce 1 letter + 1-2 digits (e.g., R1, G10, B24)
   const handleTeamIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.toUpperCase();
 
@@ -143,7 +143,8 @@ export default function HomePage() {
               <ArrowRight className="w-4 h-4" />
             </Button>
 
-            <Link href="/admin/login" className="w-full">
+            {/* Corrected route pointing directly to /admin */}
+            <Link href="/admin" className="w-full">
               <Button
                 variant="outline"
                 className="w-full border-slate-800 bg-[#131b2e] hover:bg-slate-800 text-slate-300 font-semibold py-6 rounded-xl text-sm flex items-center justify-center gap-2"
