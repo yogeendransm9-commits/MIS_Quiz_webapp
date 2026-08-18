@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '@/lib/supabase';
 import { Sparkles, Users, ShieldCheck, ArrowRight, ArrowLeft, Copy, Check, User, Hash, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -94,7 +93,7 @@ export default function HomePage() {
     <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-4 sm:p-6">
       {view === 'portal' ? (
         /* MAIN LANDING PORTAL VIEW (QR + BUTTONS) */
-        <div className="w-full max-w-md flex flex-col items-center space-y-6 animate-fade-in text-center">
+        <div className="w-full max-w-md flex flex-col items-center space-y-6 text-center">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-1.5 rounded-full text-indigo-400 font-semibold text-xs mb-1">
               <Sparkles className="w-3.5 h-3.5" />
@@ -108,9 +107,16 @@ export default function HomePage() {
 
           {/* QR Code Container */}
           <div className="bg-[#131b2e] border border-slate-800 p-6 rounded-3xl shadow-2xl flex flex-col items-center space-y-4 w-full">
-            <div className="bg-white p-4 rounded-2xl shadow-inner">
+            <div className="bg-white p-3 rounded-2xl shadow-inner flex items-center justify-center">
               {joinUrl ? (
-                <QRCodeSVG value={joinUrl} size={190} level="H" includeMargin={false} />
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                    joinUrl
+                  )}`}
+                  alt="Quiz Join QR Code"
+                  className="w-[190px] h-[190px] rounded-lg"
+                />
               ) : (
                 <div className="w-[190px] h-[190px] bg-slate-200 animate-pulse rounded-lg" />
               )}
@@ -150,7 +156,7 @@ export default function HomePage() {
         </div>
       ) : (
         /* REGISTRATION FORM VIEW */
-        <div className="w-full max-w-sm bg-[#131b2e] border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-6 animate-fade-in relative">
+        <div className="w-full max-w-sm bg-[#131b2e] border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-6 relative">
           <button
             type="button"
             onClick={() => setView('portal')}
