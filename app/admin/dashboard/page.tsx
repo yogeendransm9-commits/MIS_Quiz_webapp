@@ -2,8 +2,29 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Play, RefreshCw, CheckCircle2, Users, Trophy, Loader2, Clock } from 'lucide-react';
+import { 
+  Play, 
+  RefreshCw, 
+  CheckCircle2, 
+  Users, 
+  Trophy, 
+  Loader2, 
+  Clock, 
+  BarChart3, 
+  Medal, 
+  Flame, 
+  ExternalLink 
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import Link from 'next/link';
+
+interface LeaderboardEntry {
+  team_id: string;
+  total_score: number;
+  correct_count: number;
+  participants_count: number;
+  members: string[];
+}
 
 export default function AdminDashboardPage() {
   const [questions, setQuestions] = useState<any[]>([]);
@@ -12,23 +33,35 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(false);
   const [fetchingQuestions, setFetchingQuestions] = useState(true);
   const [timerDuration, setTimerDuration] = useState<number>(10);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [showLeaderboardTab, setShowLeaderboardTab] = useState(false);
 
   useEffect(() => {
     fetchQuestions();
     fetchQuizState();
     fetchParticipantCount();
+    fetchLeaderboardStats();
 
-    const channel = supabase
-      .channel('admin_dashboard_participants')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'participants' },
-        () => fetchParticipantCount()
-      )
+    // Listen to real-time participant changes
+    const participantChannel = supabase
+      .channel('admin_participants_channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, () => {
+        fetchParticipantCount();
+        fetchLeaderboardStats();
+      })
+      .subscribe();
+
+    // Listen to real-time answer submissions
+    const answersChannel = supabase
+      .channel('admin_answers_channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answers' }, () => {
+        fetchLeaderboardStats();
+      })
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(participantChannel);
+      supabase.removeChannel(answersChannel);
     };
   }, []);
 
@@ -39,19 +72,13 @@ export default function AdminDashboardPage() {
       .select('*')
       .order('question_number', { ascending: true });
 
-    if (error) {
-      console.error('Error fetching questions:', error);
-    } else if (data) {
-      setQuestions(data);
-    }
+    if (!error && data) setQuestions(data);
     setFetchingQuestions(false);
   };
 
   const fetchQuizState = async () => {
     const { data, error } = await supabase.from('quiz_state').select('*');
-    if (error) {
-      console.error('Error fetching quiz state:', error);
-    } else if (data && data.length > 0) {
+    if (!error && data && data.length > 0) {
       setQuizState(data[0]);
       if (data[0].timer_duration) {
         setTimerDuration(Number(data[0].timer_duration));
@@ -62,6 +89,51 @@ export default function AdminDashboardPage() {
   const fetchParticipantCount = async () => {
     const { count } = await supabase.from('participants').select('*', { count: 'exact', head: true });
     setParticipantsCount(count || 0);
+  };
+
+  // Calculates live standings grouped by Team ID
+  const fetchLeaderboardStats = async () => {
+    const { data: participants } = await supabase.from('participants').select('id, name, team_id');
+    const { data: answers } = await supabase.from('answers').select('participant_id, is_correct');
+
+    if (!participants) return;
+
+    const teamMap: Record<string, LeaderboardEntry> = {};
+
+    participants.forEach((p) => {
+      const tid = p.team_id || 'Solo';
+      if (!teamMap[tid]) {
+        teamMap[tid] = {
+          team_id: tid,
+          total_score: 0,
+          correct_count: 0,
+          participants_count: 0,
+          members: [],
+        };
+      }
+      teamMap[tid].participants_count += 1;
+      teamMap[tid].members.push(p.name);
+    });
+
+    if (answers) {
+      const participantToTeam: Record<string, string> = {};
+      participants.forEach((p) => {
+        participantToTeam[p.id] = p.team_id || 'Solo';
+      });
+
+      answers.forEach((ans) => {
+        if (ans.is_correct && participantToTeam[ans.participant_id]) {
+          const tid = participantToTeam[ans.participant_id];
+          if (teamMap[tid]) {
+            teamMap[tid].correct_count += 1;
+            teamMap[tid].total_score += 10; // 10 points per correct answer
+          }
+        }
+      });
+    }
+
+    const sorted = Object.values(teamMap).sort((a, b) => b.total_score - a.total_score);
+    setLeaderboard(sorted);
   };
 
   const broadcastQuestion = async (q: any, index: number) => {
@@ -106,9 +178,7 @@ export default function AdminDashboardPage() {
       .eq('id', rowId)
       .select();
 
-    if (!error && data && data.length > 0) {
-      setQuizState(data[0]);
-    }
+    if (!error && data && data.length > 0) setQuizState(data[0]);
     setLoading(false);
   };
 
@@ -127,9 +197,7 @@ export default function AdminDashboardPage() {
       .eq('id', rowId)
       .select();
 
-    if (!error && data && data.length > 0) {
-      setQuizState(data[0]);
-    }
+    if (!error && data && data.length > 0) setQuizState(data[0]);
     setLoading(false);
   };
 
@@ -137,19 +205,116 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#0b0f19] text-white p-4 sm:p-8 max-w-5xl mx-auto space-y-6">
+      {/* Header bar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#131b2e] border border-slate-800 p-5 rounded-2xl shadow-xl">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Quiz Host Control Panel</h1>
-          <p className="text-xs sm:text-sm text-slate-400">Broadcast questions live to connected devices</p>
+          <p className="text-xs sm:text-sm text-slate-400">Broadcast questions live and track real-time scores</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-1.5 rounded-xl text-indigo-400 font-semibold text-xs sm:text-sm">
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-2 rounded-xl text-indigo-400 font-semibold text-xs sm:text-sm">
             <Users className="w-4 h-4" />
             <span>{participantsCount} Joined</span>
           </div>
+
+          <Button
+            size="sm"
+            onClick={() => setShowLeaderboardTab(!showLeaderboardTab)}
+            className={
+              showLeaderboardTab
+                ? 'bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs'
+                : 'bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs'
+            }
+          >
+            <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
+            {showLeaderboardTab ? 'Hide Live Stats' : 'Show Live Stats'}
+          </Button>
+
+          <Link href="/leaderboard" target="_blank">
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs flex items-center gap-1"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Full Screen</span>
+            </Button>
+          </Link>
         </div>
       </div>
 
+      {/* LIVE LEADERBOARD / STATS ACCORDION */}
+      {showLeaderboardTab && (
+        <div className="bg-[#131b2e] border border-amber-500/30 p-5 rounded-2xl space-y-4 shadow-2xl animate-fade-in">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+              <Trophy className="w-4 h-4" />
+              <span>Live Team Standings</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={fetchLeaderboardStats}
+              className="text-xs text-slate-400 hover:text-white"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh Scores
+            </Button>
+          </div>
+
+          {leaderboard.length === 0 ? (
+            <p className="text-xs text-slate-500 text-center py-4">No submissions recorded yet.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {leaderboard.map((team, idx) => (
+                <div
+                  key={team.team_id}
+                  className={`p-3 rounded-xl border flex items-center justify-between ${
+                    idx === 0
+                      ? 'bg-amber-500/10 border-amber-500/40 text-white'
+                      : idx === 1
+                      ? 'bg-slate-300/10 border-slate-400/30 text-white'
+                      : idx === 2
+                      ? 'bg-amber-700/10 border-amber-700/30 text-white'
+                      : 'bg-[#0b0f19] border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
+                        idx === 0
+                          ? 'bg-amber-400 text-black'
+                          : idx === 1
+                          ? 'bg-slate-300 text-black'
+                          : idx === 2
+                          ? 'bg-amber-700 text-white'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {idx + 1}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold flex items-center gap-1.5">
+                        <span>Team {team.team_id}</span>
+                        {idx === 0 && <Flame className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />}
+                      </div>
+                      <span className="text-[10px] text-slate-400">
+                        {team.correct_count} correct • {team.participants_count} {team.participants_count === 1 ? 'member' : 'members'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-base font-extrabold text-indigo-400 font-mono">{team.total_score}</span>
+                    <span className="text-[10px] text-slate-500 block">pts</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Control Tools Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Timer Duration Picker */}
         <div className="bg-[#131b2e] border border-slate-800 p-5 rounded-2xl space-y-3 shadow-xl">
@@ -205,7 +370,7 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* Questions Bank */}
+      {/* Questions Bank List */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
