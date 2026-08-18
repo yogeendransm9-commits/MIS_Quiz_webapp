@@ -65,12 +65,17 @@ export default function HomePage() {
     setLoading(true);
 
     try {
+      // Extract numeric value from team ID (e.g., "R1" -> 1, "G10" -> 10) to satisfy team_no
+      const parsedNumber = parseInt(trimmedTeamId.replace(/\D/g, ''), 10) || 1;
+
       const { data, error: insertError } = await supabase
         .from('participants')
         .insert([
           {
             name: trimmedName,
             team_id: trimmedTeamId,
+            team_no: parsedNumber,
+            score: 0,
             created_at: new Date().toISOString(),
           },
         ])
@@ -143,7 +148,6 @@ export default function HomePage() {
               <ArrowRight className="w-4 h-4" />
             </Button>
 
-            {/* Corrected route pointing directly to /admin */}
             <Link href="/admin" className="w-full">
               <Button
                 variant="outline"
