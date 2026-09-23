@@ -46,14 +46,11 @@ export default function HomePage() {
     setLoading(true);
 
     try {
-      const fallbackName = trimmedEmail.split('@')[0];
-
       const { data, error: insertError } = await supabase
         .from('participants')
         .insert([
           {
             email: trimmedEmail,
-            name: fallbackName,
             team_id: teamChoice,
             team_name: teamChoice === 'V' ? 'Vibe' : 'Tribe',
             created_at: new Date().toISOString(),
