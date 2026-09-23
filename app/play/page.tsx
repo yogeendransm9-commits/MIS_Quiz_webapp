@@ -1,353 +1,371 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Brain, CheckCircle2, XCircle, Clock, Trophy, Loader2, Lock } from 'lucide-react';
+import { 
+  Sparkles, 
+  Clock, 
+  CheckCircle, 
+  AlertCircle, 
+  LogOut, 
+  Loader2, 
+  HelpCircle,
+  Users,
+  Sparkle
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export default function PlayPage() {
-  const [quizState, setQuizState] = useState<any>(null);
-  const [currentQuestion, setCurrentQuestion] = useState<any>(null);
-  const [selectedOptionIndex, setSelectedOptionIndex] = useState<number | null>(null);
-  const [submittedOptionIndex, setSubmittedOptionIndex] = useState<number | null>(null);
-  const [participant, setParticipant] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+interface Question {
+  id: number;
+  question_number: number;
+  question_text: string;
+  option_1: string;
+  option_2: string;
+  option_3: string;
+  option_4: string;
+  option_5?: string | null;
+  correct_option: number;
+}
 
+export default function PlayPage() {
+  const router = useRouter();
+
+  const [participant, setParticipant] = useState<any>(null);
+  const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
+  const [quizLive, setQuizLive] = useState<boolean>(false);
+  const [activeQuestionIdx, setActiveQuestionIdx] = useState<number>(0);
+  const [timeLeft, setTimeLeft] = useState<number>(0);
+  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string>('');
+  const [loadingInitial, setLoadingInitial] = useState<boolean>(true);
+
+  // 1. Initialize participant session
   useEffect(() => {
     const stored = localStorage.getItem('quiz_participant');
-    if (stored) {
-      try {
-        setParticipant(JSON.parse(stored));
-      } catch (e) {
-        console.error('Error parsing participant from localStorage:', e);
-      }
+    if (!stored) {
+      router.push('/');
+      return;
     }
+    try {
+      setParticipant(JSON.parse(stored));
+    } catch {
+      router.push('/');
+      return;
+    }
+    setLoadingInitial(false);
+  }, [router]);
 
+  // 2. Fetch and listen to quiz state
+  useEffect(() => {
     fetchQuizState();
 
-    const channel = supabase
+    const stateChannel = supabase
       .channel('play_quiz_state_channel')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'quiz_state' },
-        (payload) => {
-          const newState = payload.new as any;
-          if (newState) {
-            setQuizState(newState);
-            if (newState.is_live && newState.active_question_index > 0) {
-              fetchQuestion(newState.active_question_index);
-            } else {
-              setCurrentQuestion(null);
-            }
-          }
+        () => {
+          fetchQuizState();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(stateChannel);
     };
-  }, []);
-
-  // Timer logic reading duration from quizState
-  useEffect(() => {
-    if (!quizState?.is_live || !quizState?.question_start_time) {
-      setTimeLeft(null);
-      return;
-    }
-
-    const durationSec = Number(quizState.timer_duration) || 10;
-
-    const updateTimer = () => {
-      const startTime = new Date(quizState.question_start_time).getTime();
-      const now = new Date().getTime();
-      const elapsedSec = Math.floor((now - startTime) / 1000);
-      const remaining = Math.max(0, durationSec - elapsedSec);
-
-      setTimeLeft(remaining);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-
-    return () => clearInterval(interval);
-  }, [quizState]);
+  }, [participant]);
 
   const fetchQuizState = async () => {
-    setLoading(true);
-    const { data, error } = await supabase.from('quiz_state').select('*');
-    
-    if (error) {
-      console.error('Error fetching quiz state:', error);
-    } else if (data && data.length > 0) {
+    const { data, error } = await supabase.from('quiz_state').select('*').limit(1);
+    if (!error && data && data.length > 0) {
       const state = data[0];
-      setQuizState(state);
-      if (state.is_live && state.active_question_index > 0) {
-        await fetchQuestion(state.active_question_index);
+      const live = Boolean(state.is_live);
+      const qIdx = Number(state.active_question_index || 0);
+
+      setQuizLive(live);
+      setActiveQuestionIdx(qIdx);
+
+      if (live && qIdx > 0) {
+        loadQuestion(qIdx, state.question_start_time, state.timer_duration || 10);
+      } else {
+        setCurrentQuestion(null);
+        setSelectedOption(null);
+        setIsSubmitted(false);
       }
     }
-    setLoading(false);
   };
 
-  const fetchQuestion = async (qIndex: number) => {
-    if (!qIndex) return;
+  const loadQuestion = async (qNumber: number, startTimeStr: string | null, durationSec: number) => {
+    // Calculate remaining timer duration based on start time
+    if (startTimeStr) {
+      const startMs = new Date(startTimeStr).getTime();
+      const nowMs = Date.now();
+      const elapsedSec = Math.floor((nowMs - startMs) / 1000);
+      const remaining = Math.max(0, durationSec - elapsedSec);
+      setTimeLeft(remaining);
+    } else {
+      setTimeLeft(durationSec);
+    }
 
-    let { data } = await supabase
+    // Fetch the question details
+    const { data, error } = await supabase
       .from('questions')
       .select('*')
-      .eq('question_number', Number(qIndex))
-      .maybeSingle();
+      .eq('question_number', qNumber)
+      .single();
 
-    if (!data) {
-      const res = await supabase
-        .from('questions')
-        .select('*')
-        .eq('id', qIndex)
-        .maybeSingle();
-      data = res.data;
-    }
+    if (!error && data) {
+      setCurrentQuestion(data as Question);
 
-    if (data) {
-      setCurrentQuestion(data);
-      setSelectedOptionIndex(null);
-      setSubmittedOptionIndex(null);
+      // Check if user already answered this question
+      if (participant?.id) {
+        const { data: existingAnswer } = await supabase
+          .from('answers')
+          .select('selected_option')
+          .eq('participant_id', participant.id)
+          .eq('question_id', data.id)
+          .maybeSingle();
+
+        if (existingAnswer) {
+          setSelectedOption(existingAnswer.selected_option);
+          setIsSubmitted(true);
+        } else {
+          setSelectedOption(null);
+          setIsSubmitted(false);
+        }
+      }
     }
   };
 
-  const handleOptionSelect = (index: number) => {
-    if (submittedOptionIndex !== null || timeLeft === 0) return;
-    setSelectedOptionIndex(index);
-  };
+  // 3. Countdown timer tick
+  useEffect(() => {
+    if (!quizLive || timeLeft <= 0) return;
 
-  const submitAnswer = async () => {
-    if (selectedOptionIndex === null || !currentQuestion || timeLeft === 0) return;
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
-    if (!participant || !participant.id) {
-      alert('Participant session not found. Please register again!');
+    return () => clearInterval(timer);
+  }, [quizLive, timeLeft]);
+
+  // 4. Handle Option Submission
+  const handleSelectOption = async (optionNum: number) => {
+    if (isSubmitted || timeLeft <= 0 || submitting || !participant?.id || !currentQuestion?.id) {
       return;
     }
 
+    setSelectedOption(optionNum);
     setSubmitting(true);
+    setErrorMsg('');
 
-    const storedOptionNumber = selectedOptionIndex + 1;
-    const dbCorrectAnswer = 
-      currentQuestion.correct_option ?? 
-      currentQuestion.correct_answer ?? 
-      currentQuestion.answer;
+    try {
+      const { error } = await supabase.from('answers').insert([
+        {
+          participant_id: participant.id,
+          question_id: currentQuestion.id,
+          selected_option: optionNum,
+          submitted_at: new Date().toISOString(),
+        },
+      ]);
 
-    const isCorrect = Number(dbCorrectAnswer) === storedOptionNumber;
-
-    const payload = {
-      participant_id: participant.id,
-      question_id: currentQuestion.id,
-      selected_option: storedOptionNumber,
-      is_correct: isCorrect,
-      answered_at: new Date().toISOString(),
-    };
-
-    const { error } = await supabase.from('answers').insert([payload]);
-
-    if (error) {
-      console.error('Error submitting answer:', error);
-      alert('Submission failed: ' + error.message);
-    } else {
-      setSubmittedOptionIndex(selectedOptionIndex);
+      if (error) {
+        // If unique constraint already exists, just mark submitted
+        if (error.code === '23505') {
+          setIsSubmitted(true);
+        } else {
+          throw error;
+        }
+      } else {
+        setIsSubmitted(true);
+      }
+    } catch (err: any) {
+      console.error('Answer submission error:', err);
+      setErrorMsg(err.message || 'Failed to record answer. Please try again.');
+    } finally {
+      setSubmitting(false);
     }
-
-    setSubmitting(false);
   };
 
-  if (loading) {
+  const handleLeave = () => {
+    localStorage.removeItem('quiz_participant');
+    router.push('/');
+  };
+
+  if (loadingInitial) {
     return (
-      <div className="h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-4">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-400 mb-2" />
-        <p className="text-slate-400 text-xs">Connecting to quiz room...</p>
+      <div className="min-h-screen bg-[#0b0f19] text-white flex items-center justify-center p-4">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
       </div>
     );
   }
 
-  // WAITING ROOM SCREEN
-  if (!quizState || !quizState.is_live || !currentQuestion || quizState.active_question_index <= 0) {
-    if (quizState?.active_question_index === -1) {
-      return (
-        <div className="h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-6 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mb-4">
-            <Trophy className="w-7 h-7 text-yellow-400" />
-          </div>
-          <h1 className="text-xl font-bold tracking-tight mb-1">Quiz Finished!</h1>
-          <p className="text-slate-400 max-w-xs text-xs">Check the main leaderboard screen for the results.</p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-4 animate-pulse">
-          <Clock className="w-7 h-7 text-indigo-400" />
-        </div>
-        <h1 className="text-xl font-bold tracking-tight mb-1">Waiting for Host</h1>
-        <p className="text-slate-400 max-w-xs text-xs">
-          You are connected! Get ready, the next question will appear here as soon as the host broadcasts it.
-        </p>
-      </div>
-    );
-  }
-
-  const optionList = [
-    { label: 'A', text: currentQuestion.option_a },
-    { label: 'B', text: currentQuestion.option_b },
-    { label: 'C', text: currentQuestion.option_c },
-    { label: 'D', text: currentQuestion.option_d },
-    { label: 'E', text: currentQuestion.option_e },
-  ].filter((opt) => opt.text);
-
-  const isTimeUp = timeLeft === 0;
-  const isLockedInEarly = submittedOptionIndex !== null && !isTimeUp;
-
-  const dbCorrectIndex = 
-    (Number(currentQuestion.correct_option ?? currentQuestion.correct_answer ?? currentQuestion.answer) || 1) - 1;
-  const userGotItRight = submittedOptionIndex !== null && submittedOptionIndex === dbCorrectIndex;
+  const isTeamV = participant?.team_id === 'V';
 
   return (
-    <div className="h-[100dvh] max-h-[100dvh] bg-[#0b0f19] text-white p-3 sm:p-5 max-w-md mx-auto flex flex-col justify-between overflow-hidden">
-      {/* Top Header */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-        <div className="flex items-center gap-1.5">
-          <Brain className="w-4 h-4 text-indigo-400" />
-          <span className="font-semibold text-xs tracking-tight">Question {currentQuestion.question_number || ''}</span>
-        </div>
-
-        {timeLeft !== null && (
+    <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col justify-between p-4 sm:p-6 max-w-xl mx-auto">
+      {/* Top Participant Status Header */}
+      <div className="bg-[#131b2e] border border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-lg">
+        <div className="flex items-center gap-3">
           <div
-            className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full font-mono font-bold text-xs ${
-              isTimeUp
-                ? 'bg-slate-800 text-slate-400'
-                : timeLeft <= 5
-                ? 'bg-rose-500/15 border border-rose-500/30 text-rose-400 animate-pulse'
-                : 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+            className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg border ${
+              isTeamV
+                ? 'bg-purple-600/20 text-purple-300 border-purple-500/40'
+                : 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40'
             }`}
           >
-            <Clock className="w-3 h-3" />
-            <span>{isTimeUp ? 'Time Ended' : `${timeLeft}s`}</span>
+            {isTeamV ? <Sparkle className="w-5 h-5" /> : <Users className="w-5 h-5" />}
           </div>
-        )}
-      </div>
-
-      {/* Answer Feedback Banner (Only after timer hits 0) */}
-      {isTimeUp ? (
-        <div
-          className={`py-2 px-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold my-1 animate-fade-in ${
-            userGotItRight
-              ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
-              : 'bg-rose-500/20 border border-rose-500/40 text-rose-300'
-          }`}
-        >
-          {userGotItRight ? (
-            <>
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span>Correct Answer! 🎉</span>
-            </>
-          ) : (
-            <>
-              <XCircle className="w-4 h-4 text-rose-400" />
-              <span>
-                {submittedOptionIndex === null ? "Time's up! You didn't submit an answer" : 'Wrong Answer ❌'}
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Team</span>
+              <span
+                className={`text-xs font-extrabold px-2 py-0.5 rounded-md ${
+                  isTeamV ? 'bg-purple-500/20 text-purple-300' : 'bg-emerald-500/20 text-emerald-300'
+                }`}
+              >
+                {isTeamV ? 'V (Vibe)' : 'T (Tribe)'}
               </span>
-            </>
-          )}
-        </div>
-      ) : isLockedInEarly ? (
-        <div className="py-2 px-3 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 flex items-center justify-between my-1 animate-fade-in">
-          <div className="flex items-center gap-2">
-            <Lock className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
-            <span className="text-xs font-semibold">Answer Locked</span>
+            </div>
+            <p className="text-xs text-slate-400 truncate max-w-[180px] sm:max-w-xs">{participant?.email}</p>
           </div>
-          <span className="text-[11px] font-mono bg-indigo-500/20 px-2 py-0.5 rounded text-indigo-200">
-            Pick: {optionList[submittedOptionIndex]?.label}
-          </span>
         </div>
-      ) : null}
 
-      {/* Question Text Box */}
-      <div className="bg-[#131b2e] border border-slate-800 p-3 rounded-xl shadow-lg my-1 flex-shrink-0">
-        <h2 className="text-xs sm:text-sm font-semibold leading-snug text-slate-100">
-          {currentQuestion.question_text}
-        </h2>
+        <button
+          onClick={handleLeave}
+          title="Exit Quiz"
+          className="text-slate-500 hover:text-slate-300 transition-colors p-2"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* Options List */}
-      <div className="flex-1 flex flex-col justify-center space-y-1.5 py-1">
-        {optionList.map((opt, idx) => {
-          const isSelected = selectedOptionIndex === idx;
-          const isSubmitted = submittedOptionIndex === idx;
-
-          const isCorrect = isTimeUp && idx === dbCorrectIndex;
-          const isWrongPick = isTimeUp && isSubmitted && idx !== dbCorrectIndex;
-
-          return (
-            <button
-              key={opt.label}
-              onClick={() => handleOptionSelect(idx)}
-              disabled={submittedOptionIndex !== null || isTimeUp}
-              className={`w-full px-3 py-2 sm:py-2.5 rounded-lg border text-left transition-all flex items-center justify-between ${
-                isCorrect
-                  ? 'bg-emerald-950/70 border-emerald-500 text-white ring-1 ring-emerald-500'
-                  : isWrongPick
-                  ? 'bg-rose-950/70 border-rose-500 text-white'
-                  : isSubmitted && !isTimeUp
-                  ? 'bg-indigo-900/40 border-indigo-500 text-white'
-                  : isSelected
-                  ? 'bg-indigo-600/20 border-indigo-500 text-white'
-                  : isLockedInEarly
-                  ? 'bg-[#131b2e]/60 border-slate-800/50 text-slate-500'
-                  : 'bg-[#131b2e] border-slate-800/80 text-slate-300 hover:border-slate-700'
-              }`}
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span
-                  className={`w-5 h-5 rounded-md text-[11px] font-bold flex items-center justify-center flex-shrink-0 ${
-                    isCorrect
-                      ? 'bg-emerald-500 text-black'
-                      : isWrongPick
-                      ? 'bg-rose-500 text-white'
-                      : isSelected || isSubmitted
-                      ? 'bg-indigo-500 text-white'
-                      : 'bg-slate-800 text-slate-400'
-                  }`}
-                >
-                  {opt.label}
-                </span>
-                <span className="text-xs sm:text-sm font-normal truncate">{opt.text}</span>
-              </div>
-
-              {isCorrect && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
-              {isWrongPick && <XCircle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Bottom Action Area */}
-      <div className="pt-2 border-t border-slate-800/80 flex-shrink-0">
-        {isTimeUp ? (
-          <div className="w-full text-center py-2 bg-slate-800/40 border border-slate-700/50 rounded-xl text-slate-400 text-xs">
-            Next question starting soon...
-          </div>
-        ) : isLockedInEarly ? (
-          <div className="w-full text-center py-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-indigo-300 font-medium text-xs flex items-center justify-center gap-1.5">
-            <span>Reveal in {timeLeft}s</span>
+      {/* Main Play Body */}
+      <div className="my-auto py-6">
+        {!quizLive || activeQuestionIdx <= 0 || !currentQuestion ? (
+          /* WAITING ROOM SCREEN */
+          <div className="bg-[#131b2e] border border-slate-800 p-8 rounded-3xl text-center space-y-4 shadow-2xl">
+            <div className="w-16 h-16 mx-auto rounded-3xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+              <Sparkles className="w-8 h-8 animate-pulse" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-2xl font-bold tracking-tight">You're in the Waiting Room</h2>
+              <p className="text-xs sm:text-sm text-slate-400">
+                Hold tight! The host will broadcast the next question shortly.
+              </p>
+            </div>
+            <div className="inline-flex items-center gap-2 bg-slate-900/60 border border-slate-800 px-4 py-2 rounded-full text-xs text-slate-400">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <span>Ready for Team {participant?.team_id}</span>
+            </div>
           </div>
         ) : (
-          <Button
-            onClick={submitAnswer}
-            disabled={selectedOptionIndex === null || submitting || isTimeUp}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3.5 rounded-xl font-semibold text-xs sm:text-sm disabled:opacity-50"
-          >
-            {submitting ? 'Submitting...' : 'Submit Answer'}
-          </Button>
+          /* ACTIVE QUESTION SCREEN */
+          <div className="space-y-5">
+            {/* Question Card & Countdown */}
+            <div className="bg-[#131b2e] border border-slate-800 p-6 rounded-3xl shadow-2xl space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">
+                  Question {currentQuestion.question_number}
+                </span>
+
+                <div
+                  className={`flex items-center gap-1.5 font-mono font-bold text-sm px-3 py-1 rounded-full border ${
+                    timeLeft <= 3
+                      ? 'bg-rose-500/15 border-rose-500/40 text-rose-400 animate-bounce'
+                      : 'bg-slate-900 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{timeLeft}s</span>
+                </div>
+              </div>
+
+              <h2 className="text-lg sm:text-xl font-semibold text-slate-100 leading-snug">
+                {currentQuestion.question_text}
+              </h2>
+            </div>
+
+            {/* Answer Options */}
+            <div className="space-y-3">
+              {[
+                { num: 1, text: currentQuestion.option_1 },
+                { num: 2, text: currentQuestion.option_2 },
+                { num: 3, text: currentQuestion.option_3 },
+                { num: 4, text: currentQuestion.option_4 },
+                ...(currentQuestion.option_5 ? [{ num: 5, text: currentQuestion.option_5 }] : []),
+              ].map((opt) => {
+                const isSelected = selectedOption === opt.num;
+                const isDisabled = isSubmitted || timeLeft <= 0 || submitting;
+
+                return (
+                  <button
+                    key={opt.num}
+                    type="button"
+                    disabled={isDisabled}
+                    onClick={() => handleSelectOption(opt.num)}
+                    className={`w-full p-4 rounded-2xl border text-left font-medium text-sm flex items-center justify-between transition-all ${
+                      isSelected
+                        ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg shadow-indigo-600/30'
+                        : isSubmitted
+                        ? 'bg-[#131b2e]/50 border-slate-800/80 text-slate-500 cursor-not-allowed'
+                        : 'bg-[#131b2e] border-slate-800 text-slate-200 hover:border-indigo-500/50 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
+                          isSelected
+                            ? 'bg-white text-indigo-700'
+                            : 'bg-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {String.fromCharCode(64 + opt.num)}
+                      </span>
+                      <span>{opt.text}</span>
+                    </div>
+
+                    {isSelected && <CheckCircle className="w-4 h-4 text-white shrink-0 ml-2" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Status Footer */}
+            {isSubmitted && (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs p-3 rounded-xl flex items-center justify-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                <span>Answer submitted! Waiting for next question...</span>
+              </div>
+            )}
+
+            {!isSubmitted && timeLeft === 0 && (
+              <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs p-3 rounded-xl flex items-center justify-center gap-2">
+                <AlertCircle className="w-4 h-4" />
+                <span>Time up! Waiting for next question...</span>
+              </div>
+            )}
+
+            {errorMsg && (
+              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs p-3 rounded-xl text-center">
+                {errorMsg}
+              </div>
+            )}
+          </div>
         )}
+      </div>
+
+      {/* Footer Branding */}
+      <div className="text-center text-[11px] text-slate-600 pt-4">
+        Workplace Live Quiz • Team Vibe vs Team Tribe
       </div>
     </div>
   );

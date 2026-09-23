@@ -17,25 +17,14 @@ import {
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
-interface TeamScore {
-  colorKey: string;
-  teamName: string;
-  badgeBg: string;
-  textColor: string;
-  totalScore: number;
-  correctAnswers: number;
-  totalMembers: number;
-  members: string[];
+interface TeamScoreRow {
+  team_id: 'V' | 'T';
+  team_display_name: string;
+  total_players: number;
+  total_points: number;
+  avg_points_per_player: number;
+  rank: number;
 }
-
-const COLOR_MAP: Record<string, { name: string; bg: string; text: string }> = {
-  R: { name: 'Team R', bg: 'bg-rose-500/15 border-rose-500/30', text: 'text-rose-400' },
-  G: { name: 'Team G', bg: 'bg-emerald-500/15 border-emerald-500/30', text: 'text-emerald-400' },
-  B: { name: 'Team B', bg: 'bg-sky-500/15 border-sky-500/30', text: 'text-sky-400' },
-  Y: { name: 'Team Y', bg: 'bg-amber-500/15 border-amber-500/30', text: 'text-amber-400' },
-  O: { name: 'Team O', bg: 'bg-orange-500/15 border-orange-500/30', text: 'text-orange-400' },
-  P: { name: 'Team P', bg: 'bg-purple-500/15 border-purple-500/30', text: 'text-purple-400' },
-};
 
 export default function AdminDashboardPage() {
   const [questions, setQuestions] = useState<any[]>([]);
@@ -44,27 +33,28 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(false);
   const [fetchingQuestions, setFetchingQuestions] = useState(true);
   const [timerDuration, setTimerDuration] = useState<number>(10);
-  const [teamLeaderboard, setTeamLeaderboard] = useState<TeamScore[]>([]);
-  const [showStats, setShowStats] = useState(false);
+  const [teamLeaderboard, setTeamLeaderboard] = useState<TeamScoreRow[]>([]);
+  const [showStats, setShowStats] = useState(true);
 
   useEffect(() => {
     fetchQuestions();
     fetchQuizState();
     fetchParticipantCount();
-    fetchTeamLeaderboard();
+    fetchTeamScores();
 
+    // Listen to changes on participants and answers to re-fetch view rankings
     const pChannel = supabase
-      .channel('admin_dash_participants')
+      .channel('admin_dash_participants_ch')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, () => {
         fetchParticipantCount();
-        fetchTeamLeaderboard();
+        fetchTeamScores();
       })
       .subscribe();
 
     const aChannel = supabase
-      .channel('admin_dash_answers')
+      .channel('admin_dash_answers_ch')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'answers' }, () => {
-        fetchTeamLeaderboard();
+        fetchTeamScores();
       })
       .subscribe();
 
@@ -100,61 +90,16 @@ export default function AdminDashboardPage() {
     setParticipantsCount(count || 0);
   };
 
-  // Group by Letter prefix (R, G, B, etc.) and calculate 1 point per correct answer
-  const fetchTeamLeaderboard = async () => {
-    const { data: participants } = await supabase.from('participants').select('id, name, team_id');
-    const { data: answers } = await supabase.from('answers').select('participant_id, is_correct');
+  // Queries the SQL View directly
+  const fetchTeamScores = async () => {
+    const { data, error } = await supabase
+      .from('team_scores')
+      .select('*')
+      .order('rank', { ascending: true });
 
-    if (!participants) return;
-
-    const teamGroups: Record<string, TeamScore> = {};
-
-    participants.forEach((p) => {
-      const rawId = (p.team_id || 'U').trim().toUpperCase();
-      const colorChar = rawId.charAt(0) || 'U';
-      const colorMeta = COLOR_MAP[colorChar] || {
-        name: `Team ${colorChar}`,
-        bg: 'bg-slate-800/60 border-slate-700',
-        text: 'text-indigo-400',
-      };
-
-      if (!teamGroups[colorChar]) {
-        teamGroups[colorChar] = {
-          colorKey: colorChar,
-          teamName: colorMeta.name,
-          badgeBg: colorMeta.bg,
-          textColor: colorMeta.text,
-          totalScore: 0,
-          correctAnswers: 0,
-          totalMembers: 0,
-          members: [],
-        };
-      }
-
-      teamGroups[colorChar].totalMembers += 1;
-      teamGroups[colorChar].members.push(`${p.name} (${rawId})`);
-    });
-
-    if (answers) {
-      const userToColorGroup: Record<string, string> = {};
-      participants.forEach((p) => {
-        const rawId = (p.team_id || 'U').trim().toUpperCase();
-        userToColorGroup[p.id] = rawId.charAt(0) || 'U';
-      });
-
-      answers.forEach((ans) => {
-        if (ans.is_correct) {
-          const colorKey = userToColorGroup[ans.participant_id];
-          if (colorKey && teamGroups[colorKey]) {
-            teamGroups[colorKey].correctAnswers += 1;
-            teamGroups[colorKey].totalScore += 1; // 1 point per correct answer
-          }
-        }
-      });
+    if (!error && data) {
+      setTeamLeaderboard(data as TeamScoreRow[]);
     }
-
-    const sortedTeams = Object.values(teamGroups).sort((a, b) => b.totalScore - a.totalScore);
-    setTeamLeaderboard(sortedTeams);
   };
 
   const broadcastQuestion = async (q: any, index: number) => {
@@ -230,7 +175,7 @@ export default function AdminDashboardPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#131b2e] border border-slate-800 p-5 rounded-2xl shadow-xl">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Quiz Host Control Panel</h1>
-          <p className="text-xs sm:text-sm text-slate-400">Broadcast questions & track aggregated Team scores (1 pt per correct answer)</p>
+          <p className="text-xs sm:text-sm text-slate-400">Battle: Team V (Vibe) vs Team T (Tribe)</p>
         </div>
         <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-2 rounded-xl text-indigo-400 font-semibold text-xs sm:text-sm">
@@ -248,7 +193,7 @@ export default function AdminDashboardPage() {
             }
           >
             <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
-            {showStats ? 'Hide Team Standings' : 'Show Team Standings'}
+            {showStats ? 'Hide Live Stats' : 'Show Live Stats'}
           </Button>
 
           <Link href="/leaderboard" target="_blank">
@@ -264,58 +209,85 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* AGGREGATED TEAM LEADERBOARD */}
+      {/* LIVE VIBE VS TRIBE BATTLE STANDINGS */}
       {showStats && (
-        <div className="bg-[#131b2e] border border-amber-500/30 p-5 rounded-2xl space-y-4 shadow-2xl animate-fade-in">
+        <div className="bg-[#131b2e] border border-amber-500/30 p-5 rounded-2xl space-y-4 shadow-2xl">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
               <Trophy className="w-4 h-4" />
-              <span>Team Leaderboard (1 pt / answer)</span>
+              <span>Live Team Battle Standings (Sorted by Avg Score)</span>
             </div>
             <Button
               variant="ghost"
               size="sm"
-              onClick={fetchTeamLeaderboard}
+              onClick={fetchTeamScores}
               className="text-xs text-slate-400 hover:text-white"
             >
               <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
             </Button>
           </div>
 
-          {teamLeaderboard.length === 0 ? (
-            <p className="text-xs text-slate-500 text-center py-4">No team activity yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {teamLeaderboard.map((team, idx) => (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {teamLeaderboard.length === 0 ? (
+              <div className="col-span-2 text-center text-xs text-slate-500 py-4">
+                No participants joined yet.
+              </div>
+            ) : (
+              teamLeaderboard.map((team, idx) => (
                 <div
-                  key={team.colorKey}
-                  className={`p-4 rounded-xl border flex flex-col justify-between space-y-2 ${team.badgeBg}`}
+                  key={team.team_id}
+                  className={`p-5 rounded-2xl border flex flex-col justify-between space-y-3 relative overflow-hidden ${
+                    team.team_id === 'V'
+                      ? 'bg-purple-950/30 border-purple-500/40 text-purple-300'
+                      : 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                  }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-full bg-slate-900/80 border border-white/10 text-white font-bold text-xs flex items-center justify-center">
-                        #{idx + 1}
-                      </span>
-                      <h3 className={`font-bold text-base ${team.textColor}`}>{team.teamName}</h3>
-                      {idx === 0 && <Flame className="w-4 h-4 text-amber-400 fill-amber-400" />}
+                  {idx === 0 && (
+                    <div className="absolute top-0 right-0 bg-amber-500 text-black text-[10px] font-black uppercase px-3 py-0.5 rounded-bl-lg flex items-center gap-1">
+                      <Flame className="w-3 h-3 fill-black" /> Current Leader
                     </div>
-                    <span className="text-lg font-extrabold text-white font-mono">{team.totalScore} {team.totalScore === 1 ? 'pt' : 'pts'}</span>
+                  )}
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-slate-900/80 border border-white/10 text-white font-extrabold text-base flex items-center justify-center">
+                        #{team.rank || idx + 1}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-lg text-white">{team.team_display_name}</h3>
+                        <span className="text-xs text-slate-400">
+                          {team.total_players} {team.total_players === 1 ? 'player' : 'players'} enrolled
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-2xl font-black font-mono text-white">
+                        {team.avg_points_per_player || 0} <span className="text-xs text-slate-400 font-normal">avg</span>
+                      </div>
+                      <div className="text-xs text-indigo-300 font-mono font-medium">
+                        {team.total_points || 0} {team.total_points === 1 ? 'total pt' : 'total pts'}
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-800/60 pt-2">
-                    <span>{team.correctAnswers} total correct</span>
-                    <span>{team.totalMembers} active {team.totalMembers === 1 ? 'player' : 'players'}</span>
+                  <div className="w-full bg-slate-900/60 rounded-full h-2 overflow-hidden border border-slate-800">
+                    <div 
+                      className={`h-full transition-all duration-500 ${
+                        team.team_id === 'V' ? 'bg-purple-500' : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min((team.avg_points_per_player || 0) * 20, 100)}%` }}
+                    />
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </div>
       )}
 
       {/* Control Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Timer Duration Picker */}
         <div className="bg-[#131b2e] border border-slate-800 p-5 rounded-2xl space-y-3 shadow-xl">
           <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
             <Clock className="w-4 h-4" />
@@ -341,7 +313,6 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Room Actions */}
         <div className="bg-[#131b2e] border border-slate-800 p-5 rounded-2xl space-y-3 shadow-xl flex flex-col justify-between">
           <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Room Actions</span>
           <div className="flex flex-wrap gap-2">

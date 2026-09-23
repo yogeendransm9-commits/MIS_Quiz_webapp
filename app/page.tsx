@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Sparkles, Users, ShieldCheck, ArrowRight, ArrowLeft, Copy, Check, User, Hash, Loader2 } from 'lucide-react';
+import { Sparkles, Users, ShieldCheck, ArrowRight, ArrowLeft, Copy, Check, Mail, Loader2, Sparkle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
@@ -14,8 +14,8 @@ export default function HomePage() {
   const [copied, setCopied] = useState(false);
 
   // Form State
-  const [name, setName] = useState('');
-  const [teamId, setTeamId] = useState('');
+  const [email, setEmail] = useState('');
+  const [teamChoice, setTeamChoice] = useState<'V' | 'T'>('V');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -32,50 +32,30 @@ export default function HomePage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Enforce 1 letter + 1-2 digits (e.g., R1, G10, B24)
-  const handleTeamIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let val = e.target.value.toUpperCase();
-
-    if (val.length === 1 && !/^[A-Z]$/.test(val)) return;
-    if (val.length > 1 && !/^[A-Z][0-9]{1,2}$/.test(val)) return;
-    if (val.length > 3) return;
-
-    setTeamId(val);
-    setError('');
-  };
-
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    const trimmedName = name.trim();
-    const trimmedTeamId = teamId.trim().toUpperCase();
-
-    if (!trimmedName) {
-      setError('Please enter your name');
-      return;
-    }
-
-    const teamIdRegex = /^[A-Z][0-9]{1,2}$/;
-    if (!teamIdRegex.test(trimmedTeamId)) {
-      setError('Team ID must be 1 letter followed by 1 or 2 digits (e.g. R1, G10, B24)');
+    const trimmedEmail = email.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setError('Please enter a valid email address');
       return;
     }
 
     setLoading(true);
 
     try {
-      // Extract numeric value from team ID (e.g., "R1" -> 1, "G10" -> 10) to satisfy team_no
-      const parsedNumber = parseInt(trimmedTeamId.replace(/\D/g, ''), 10) || 1;
+      const fallbackName = trimmedEmail.split('@')[0];
 
       const { data, error: insertError } = await supabase
         .from('participants')
         .insert([
           {
-            name: trimmedName,
-            team_id: trimmedTeamId,
-            team_no: parsedNumber,
-            score: 0,
+            email: trimmedEmail,
+            name: fallbackName,
+            team_id: teamChoice,
+            team_name: teamChoice === 'V' ? 'Vibe' : 'Tribe',
             created_at: new Date().toISOString(),
           },
         ])
@@ -97,7 +77,6 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col items-center justify-center p-4 sm:p-6">
       {view === 'portal' ? (
-        /* MAIN LANDING PORTAL VIEW (QR + BUTTONS) */
         <div className="w-full max-w-md flex flex-col items-center space-y-6 text-center">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-1.5 rounded-full text-indigo-400 font-semibold text-xs mb-1">
@@ -110,15 +89,12 @@ export default function HomePage() {
             </p>
           </div>
 
-          {/* QR Code Container */}
           <div className="bg-[#131b2e] border border-slate-800 p-6 rounded-3xl shadow-2xl flex flex-col items-center space-y-4 w-full">
             <div className="bg-white p-3 rounded-2xl shadow-inner flex items-center justify-center">
               {joinUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
-                    joinUrl
-                  )}`}
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(joinUrl)}`}
                   alt="Quiz Join QR Code"
                   className="w-[190px] h-[190px] rounded-lg"
                 />
@@ -137,7 +113,6 @@ export default function HomePage() {
             </button>
           </div>
 
-          {/* Action Buttons */}
           <div className="flex flex-col gap-3 w-full">
             <Button
               onClick={() => setView('register')}
@@ -160,7 +135,6 @@ export default function HomePage() {
           </div>
         </div>
       ) : (
-        /* REGISTRATION FORM VIEW */
         <div className="w-full max-w-sm bg-[#131b2e] border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-6 relative">
           <button
             type="button"
@@ -178,45 +152,63 @@ export default function HomePage() {
 
           <div className="text-center space-y-1">
             <h1 className="text-2xl font-bold tracking-tight text-white">Join the Quiz</h1>
-            <p className="text-xs text-slate-400">Enter your details to enter the room</p>
+            <p className="text-xs text-slate-400">Choose your team and enter your corporate email</p>
           </div>
 
-          <form onSubmit={handleJoin} className="space-y-4">
+          <form onSubmit={handleJoin} className="space-y-5">
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Participant Name
+                Email ID
               </label>
               <div className="relative">
-                <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
-                  type="text"
-                  placeholder="John Doe"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  type="email"
+                  placeholder="name@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
                   className="w-full bg-[#0b0f19] border border-slate-800 focus:border-indigo-500 focus:outline-none rounded-xl pl-10 pr-4 py-3 text-sm text-white placeholder-slate-600 transition-colors"
                 />
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Team ID
-                </label>
-                <span className="text-[10px] text-slate-500 font-mono">Ex: R1, G10, B24</span>
-              </div>
-              <div className="relative">
-                <Hash className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  maxLength={3}
-                  placeholder="R1 or G10"
-                  value={teamId}
-                  onChange={handleTeamIdChange}
-                  required
-                  className="w-full bg-[#0b0f19] border border-slate-800 focus:border-indigo-500 focus:outline-none rounded-xl pl-10 pr-4 py-3 text-sm text-white font-mono uppercase placeholder-slate-600 transition-colors"
-                />
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Select Your Team
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setTeamChoice('V')}
+                  className={`p-3.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${
+                    teamChoice === 'V'
+                      ? 'bg-purple-600/20 border-purple-500 text-purple-300 ring-2 ring-purple-500/30 shadow-lg shadow-purple-500/10'
+                      : 'bg-[#0b0f19] border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-extrabold text-base">Team V</span>
+                    <Sparkle className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-xs font-semibold">Vibe</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTeamChoice('T')}
+                  className={`p-3.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${
+                    teamChoice === 'T'
+                      ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/30 shadow-lg shadow-emerald-500/10'
+                      : 'bg-[#0b0f19] border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-extrabold text-base">Team T</span>
+                    <Users className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-xs font-semibold">Tribe</span>
+                </button>
               </div>
             </div>
 
@@ -233,10 +225,10 @@ export default function HomePage() {
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Entering...
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Entering Room...
                 </>
               ) : (
-                'Enter Quiz Room'
+                `Enter as Team ${teamChoice} (${teamChoice === 'V' ? 'Vibe' : 'Tribe'})`
               )}
             </Button>
           </form>
