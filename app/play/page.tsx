@@ -40,7 +40,9 @@ export default function PlayPage() {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [loadingInitial, setLoadingInitial] = useState<boolean>(true);
 
-  const currentQIdRef = useRef<number | null>(null);
+  // Tracks the active broadcast timestamp and question number to detect transitions
+  const lastBroadcastTimeRef = useRef<string | null>(null);
+  const activeQuestionIdxRef = useRef<number>(0);
 
   // 1. Initialize participant session
   useEffect(() => {
@@ -58,9 +60,8 @@ export default function PlayPage() {
     setLoadingInitial(false);
   }, [router]);
 
-  // 2. Fetch question with fallback matching
+  // 2. Question fetching helper
   const fetchTargetQuestion = async (qNum: number): Promise<Question | null> => {
-    // Try matching by question_number directly
     const { data: qByNum } = await supabase
       .from('questions')
       .select('*')
@@ -69,7 +70,6 @@ export default function PlayPage() {
 
     if (qByNum) return qByNum as Question;
 
-    // Fallback: fetch ordered questions and pick by index offset
     const { data: allQuestions } = await supabase
       .from('questions')
       .select('*')
@@ -82,7 +82,7 @@ export default function PlayPage() {
     return null;
   };
 
-  // 3. Core state synchronizer
+  // 3. Synchronize with quiz_state
   const syncQuizState = async () => {
     try {
       const { data, error } = await supabase
@@ -96,62 +96,70 @@ export default function PlayPage() {
       const state = data[0];
       const isLive = Boolean(state.is_live);
       const targetIdx = Number(state.active_question_index || 0);
+      const broadcastTime = state.question_start_time || state.updated_at;
+      const configuredDuration = Number(state.timer_duration || 10);
 
       setQuizLive(isLive);
       setActiveQuestionIdx(targetIdx);
 
       if (isLive && targetIdx > 0) {
-        // Calculate timer
-        if (state.question_start_time) {
-          const startMs = new Date(state.question_start_time).getTime();
-          const elapsedSec = Math.floor((Date.now() - startMs) / 1000);
-          const duration = Number(state.timer_duration || 10);
-          setTimeLeft(Math.max(0, duration - elapsedSec));
-        } else {
-          setTimeLeft(Number(state.timer_duration || 10));
-        }
+        // Detect a new broadcast event (either new question OR host re-broadcasted)
+        const isNewBroadcast = 
+          lastBroadcastTimeRef.current !== broadcastTime || 
+          activeQuestionIdxRef.current !== targetIdx;
 
-        // Only re-fetch question if it changed
-        if (currentQIdRef.current !== targetIdx) {
+        if (isNewBroadcast) {
+          lastBroadcastTimeRef.current = broadcastTime;
+          activeQuestionIdxRef.current = targetIdx;
+
+          // FIX 2: Reset submission lock completely for the new question
+          setSelectedOption(null);
+          setIsSubmitted(false);
+          setSubmitting(false);
+          setErrorMsg('');
+
+          // FIX 1: Set timer directly to configured duration, avoiding device clock skew
+          setTimeLeft(configuredDuration);
+
+          // Fetch the question
           const qData = await fetchTargetQuestion(targetIdx);
           if (qData) {
-            currentQIdRef.current = targetIdx;
             setCurrentQuestion(qData);
 
-            // Check if already answered
+            // Check if user previously submitted for THIS exact question
             const stored = localStorage.getItem('quiz_participant');
             const pId = stored ? JSON.parse(stored)?.id : participant?.id;
 
             if (pId) {
-              const { data: ans } = await supabase
+              const { data: existingAns } = await supabase
                 .from('answers')
                 .select('selected_option')
                 .eq('participant_id', pId)
                 .eq('question_id', qData.id)
                 .maybeSingle();
 
-              if (ans) {
-                setSelectedOption(ans.selected_option);
+              if (existingAns) {
+                setSelectedOption(existingAns.selected_option);
                 setIsSubmitted(true);
-              } else {
-                setSelectedOption(null);
-                setIsSubmitted(false);
               }
             }
           }
         }
       } else {
-        currentQIdRef.current = null;
+        // Waiting room state
+        lastBroadcastTimeRef.current = null;
+        activeQuestionIdxRef.current = 0;
         setCurrentQuestion(null);
         setSelectedOption(null);
         setIsSubmitted(false);
+        setSubmitting(false);
       }
     } catch (err) {
       console.error('Quiz state sync error:', err);
     }
   };
 
-  // 4. Polling + Realtime listener
+  // 4. Polling & Realtime Subscription
   useEffect(() => {
     syncQuizState();
 
@@ -160,7 +168,7 @@ export default function PlayPage() {
     }, 1000);
 
     const sub = supabase
-      .channel('play_quiz_live_sync')
+      .channel('play_quiz_live_sync_channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'quiz_state' }, () => {
         syncQuizState();
       })
@@ -172,7 +180,7 @@ export default function PlayPage() {
     };
   }, [participant]);
 
-  // 5. Timer countdown
+  // 5. Active Countdown tick
   useEffect(() => {
     if (!quizLive || timeLeft <= 0) return;
 
@@ -203,10 +211,16 @@ export default function PlayPage() {
         },
       ]);
 
-      if (error && error.code !== '23505') {
-        throw error;
+      if (error) {
+        // Code 23505 = already submitted for this question
+        if (error.code === '23505') {
+          setIsSubmitted(true);
+        } else {
+          throw error;
+        }
+      } else {
+        setIsSubmitted(true);
       }
-      setIsSubmitted(true);
     } catch (err: any) {
       console.error('Answer submission error:', err);
       setErrorMsg(err.message || 'Failed to submit answer.');
@@ -232,7 +246,7 @@ export default function PlayPage() {
 
   return (
     <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col justify-between p-4 sm:p-6 max-w-xl mx-auto">
-      {/* Top Header */}
+      {/* Top Participant Status Header */}
       <div className="bg-[#131b2e] border border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-lg">
         <div className="flex items-center gap-3">
           <div
@@ -268,7 +282,7 @@ export default function PlayPage() {
         </button>
       </div>
 
-      {/* Main Container */}
+      {/* Main Play Area */}
       <div className="my-auto py-6">
         {!quizLive || activeQuestionIdx <= 0 || !currentQuestion ? (
           /* WAITING ROOM */
@@ -313,6 +327,7 @@ export default function PlayPage() {
               </h2>
             </div>
 
+            {/* Answer Options */}
             <div className="space-y-3">
               {[
                 { num: 1, text: currentQuestion.option_1 },
@@ -357,6 +372,7 @@ export default function PlayPage() {
               })}
             </div>
 
+            {/* Feedback Banners */}
             {isSubmitted && (
               <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs p-3 rounded-xl flex items-center justify-center gap-2">
                 <CheckCircle className="w-4 h-4" />
