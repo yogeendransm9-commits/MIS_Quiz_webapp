@@ -40,8 +40,7 @@ export default function PlayPage() {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [loadingInitial, setLoadingInitial] = useState<boolean>(true);
 
-  const activeQuestionIdxRef = useRef<number>(0);
-  const isLiveRef = useRef<boolean>(false);
+  const currentQIdRef = useRef<number | null>(null);
 
   // 1. Initialize participant session
   useEffect(() => {
@@ -59,117 +58,132 @@ export default function PlayPage() {
     setLoadingInitial(false);
   }, [router]);
 
-  // 2. Fetch state function
-  const fetchQuizState = async () => {
-    const { data, error } = await supabase.from('quiz_state').select('*').limit(1);
-    if (!error && data && data.length > 0) {
+  // 2. Fetch question with fallback matching
+  const fetchTargetQuestion = async (qNum: number): Promise<Question | null> => {
+    // Try matching by question_number directly
+    const { data: qByNum } = await supabase
+      .from('questions')
+      .select('*')
+      .eq('question_number', qNum)
+      .maybeSingle();
+
+    if (qByNum) return qByNum as Question;
+
+    // Fallback: fetch ordered questions and pick by index offset
+    const { data: allQuestions } = await supabase
+      .from('questions')
+      .select('*')
+      .order('id', { ascending: true });
+
+    if (allQuestions && allQuestions.length >= qNum && qNum > 0) {
+      return allQuestions[qNum - 1] as Question;
+    }
+
+    return null;
+  };
+
+  // 3. Core state synchronizer
+  const syncQuizState = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('quiz_state')
+        .select('*')
+        .order('id', { ascending: true })
+        .limit(1);
+
+      if (error || !data || data.length === 0) return;
+
       const state = data[0];
-      const live = Boolean(state.is_live);
-      const qIdx = Number(state.active_question_index || 0);
+      const isLive = Boolean(state.is_live);
+      const targetIdx = Number(state.active_question_index || 0);
 
-      // Trigger question change if index or live status changes
-      if (live !== isLiveRef.current || qIdx !== activeQuestionIdxRef.current) {
-        isLiveRef.current = live;
-        activeQuestionIdxRef.current = qIdx;
-        setQuizLive(live);
-        setActiveQuestionIdx(qIdx);
+      setQuizLive(isLive);
+      setActiveQuestionIdx(targetIdx);
 
-        if (live && qIdx > 0) {
-          loadQuestion(qIdx, state.question_start_time, state.timer_duration || 10);
+      if (isLive && targetIdx > 0) {
+        // Calculate timer
+        if (state.question_start_time) {
+          const startMs = new Date(state.question_start_time).getTime();
+          const elapsedSec = Math.floor((Date.now() - startMs) / 1000);
+          const duration = Number(state.timer_duration || 10);
+          setTimeLeft(Math.max(0, duration - elapsedSec));
         } else {
-          setCurrentQuestion(null);
-          setSelectedOption(null);
-          setIsSubmitted(false);
+          setTimeLeft(Number(state.timer_duration || 10));
         }
+
+        // Only re-fetch question if it changed
+        if (currentQIdRef.current !== targetIdx) {
+          const qData = await fetchTargetQuestion(targetIdx);
+          if (qData) {
+            currentQIdRef.current = targetIdx;
+            setCurrentQuestion(qData);
+
+            // Check if already answered
+            const stored = localStorage.getItem('quiz_participant');
+            const pId = stored ? JSON.parse(stored)?.id : participant?.id;
+
+            if (pId) {
+              const { data: ans } = await supabase
+                .from('answers')
+                .select('selected_option')
+                .eq('participant_id', pId)
+                .eq('question_id', qData.id)
+                .maybeSingle();
+
+              if (ans) {
+                setSelectedOption(ans.selected_option);
+                setIsSubmitted(true);
+              } else {
+                setSelectedOption(null);
+                setIsSubmitted(false);
+              }
+            }
+          }
+        }
+      } else {
+        currentQIdRef.current = null;
+        setCurrentQuestion(null);
+        setSelectedOption(null);
+        setIsSubmitted(false);
       }
+    } catch (err) {
+      console.error('Quiz state sync error:', err);
     }
   };
 
-  // 3. Realtime subscription + Fallback Polling (every 1 second)
+  // 4. Polling + Realtime listener
   useEffect(() => {
-    fetchQuizState();
+    syncQuizState();
 
-    // Fast polling fallback so no participant gets stuck
-    const pollInterval = setInterval(() => {
-      fetchQuizState();
+    const poll = setInterval(() => {
+      syncQuizState();
     }, 1000);
 
-    // Supabase Realtime channel
-    const channel = supabase
-      .channel('play_quiz_live_channel')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'quiz_state' },
-        () => {
-          fetchQuizState();
-        }
-      )
+    const sub = supabase
+      .channel('play_quiz_live_sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'quiz_state' }, () => {
+        syncQuizState();
+      })
       .subscribe();
 
     return () => {
-      clearInterval(pollInterval);
-      supabase.removeChannel(channel);
+      clearInterval(poll);
+      supabase.removeChannel(sub);
     };
   }, [participant]);
 
-  const loadQuestion = async (qNumber: number, startTimeStr: string | null, durationSec: number) => {
-    if (startTimeStr) {
-      const startMs = new Date(startTimeStr).getTime();
-      const nowMs = Date.now();
-      const elapsedSec = Math.floor((nowMs - startMs) / 1000);
-      const remaining = Math.max(0, durationSec - elapsedSec);
-      setTimeLeft(remaining);
-    } else {
-      setTimeLeft(durationSec);
-    }
-
-    const { data, error } = await supabase
-      .from('questions')
-      .select('*')
-      .eq('question_number', qNumber)
-      .single();
-
-    if (!error && data) {
-      setCurrentQuestion(data as Question);
-
-      // Check if participant already answered
-      if (participant?.id) {
-        const { data: existingAnswer } = await supabase
-          .from('answers')
-          .select('selected_option')
-          .eq('participant_id', participant.id)
-          .eq('question_id', data.id)
-          .maybeSingle();
-
-        if (existingAnswer) {
-          setSelectedOption(existingAnswer.selected_option);
-          setIsSubmitted(true);
-        } else {
-          setSelectedOption(null);
-          setIsSubmitted(false);
-        }
-      }
-    }
-  };
-
-  // 4. Countdown timer tick
+  // 5. Timer countdown
   useEffect(() => {
     if (!quizLive || timeLeft <= 0) return;
 
     const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
+      setTimeLeft((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
 
     return () => clearInterval(timer);
   }, [quizLive, timeLeft]);
 
-  // 5. Submit Option
+  // 6. Handle Answer Submission
   const handleSelectOption = async (optionNum: number) => {
     if (isSubmitted || timeLeft <= 0 || submitting || !participant?.id || !currentQuestion?.id) {
       return;
@@ -279,7 +293,7 @@ export default function PlayPage() {
             <div className="bg-[#131b2e] border border-slate-800 p-6 rounded-3xl shadow-2xl space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">
-                  Question {currentQuestion.question_number}
+                  Question {currentQuestion.question_number || activeQuestionIdx}
                 </span>
 
                 <div
