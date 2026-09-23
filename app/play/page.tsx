@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { 
@@ -10,11 +10,9 @@ import {
   AlertCircle, 
   LogOut, 
   Loader2, 
-  HelpCircle,
   Users,
   Sparkle
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 
 interface Question {
   id: number;
@@ -42,6 +40,9 @@ export default function PlayPage() {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [loadingInitial, setLoadingInitial] = useState<boolean>(true);
 
+  const activeQuestionIdxRef = useRef<number>(0);
+  const isLiveRef = useRef<boolean>(false);
+
   // 1. Initialize participant session
   useEffect(() => {
     const stored = localStorage.getItem('quiz_participant');
@@ -58,12 +59,44 @@ export default function PlayPage() {
     setLoadingInitial(false);
   }, [router]);
 
-  // 2. Fetch and listen to quiz state
+  // 2. Fetch state function
+  const fetchQuizState = async () => {
+    const { data, error } = await supabase.from('quiz_state').select('*').limit(1);
+    if (!error && data && data.length > 0) {
+      const state = data[0];
+      const live = Boolean(state.is_live);
+      const qIdx = Number(state.active_question_index || 0);
+
+      // Trigger question change if index or live status changes
+      if (live !== isLiveRef.current || qIdx !== activeQuestionIdxRef.current) {
+        isLiveRef.current = live;
+        activeQuestionIdxRef.current = qIdx;
+        setQuizLive(live);
+        setActiveQuestionIdx(qIdx);
+
+        if (live && qIdx > 0) {
+          loadQuestion(qIdx, state.question_start_time, state.timer_duration || 10);
+        } else {
+          setCurrentQuestion(null);
+          setSelectedOption(null);
+          setIsSubmitted(false);
+        }
+      }
+    }
+  };
+
+  // 3. Realtime subscription + Fallback Polling (every 1 second)
   useEffect(() => {
     fetchQuizState();
 
-    const stateChannel = supabase
-      .channel('play_quiz_state_channel')
+    // Fast polling fallback so no participant gets stuck
+    const pollInterval = setInterval(() => {
+      fetchQuizState();
+    }, 1000);
+
+    // Supabase Realtime channel
+    const channel = supabase
+      .channel('play_quiz_live_channel')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'quiz_state' },
@@ -74,32 +107,12 @@ export default function PlayPage() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(stateChannel);
+      clearInterval(pollInterval);
+      supabase.removeChannel(channel);
     };
   }, [participant]);
 
-  const fetchQuizState = async () => {
-    const { data, error } = await supabase.from('quiz_state').select('*').limit(1);
-    if (!error && data && data.length > 0) {
-      const state = data[0];
-      const live = Boolean(state.is_live);
-      const qIdx = Number(state.active_question_index || 0);
-
-      setQuizLive(live);
-      setActiveQuestionIdx(qIdx);
-
-      if (live && qIdx > 0) {
-        loadQuestion(qIdx, state.question_start_time, state.timer_duration || 10);
-      } else {
-        setCurrentQuestion(null);
-        setSelectedOption(null);
-        setIsSubmitted(false);
-      }
-    }
-  };
-
   const loadQuestion = async (qNumber: number, startTimeStr: string | null, durationSec: number) => {
-    // Calculate remaining timer duration based on start time
     if (startTimeStr) {
       const startMs = new Date(startTimeStr).getTime();
       const nowMs = Date.now();
@@ -110,7 +123,6 @@ export default function PlayPage() {
       setTimeLeft(durationSec);
     }
 
-    // Fetch the question details
     const { data, error } = await supabase
       .from('questions')
       .select('*')
@@ -120,7 +132,7 @@ export default function PlayPage() {
     if (!error && data) {
       setCurrentQuestion(data as Question);
 
-      // Check if user already answered this question
+      // Check if participant already answered
       if (participant?.id) {
         const { data: existingAnswer } = await supabase
           .from('answers')
@@ -140,7 +152,7 @@ export default function PlayPage() {
     }
   };
 
-  // 3. Countdown timer tick
+  // 4. Countdown timer tick
   useEffect(() => {
     if (!quizLive || timeLeft <= 0) return;
 
@@ -157,7 +169,7 @@ export default function PlayPage() {
     return () => clearInterval(timer);
   }, [quizLive, timeLeft]);
 
-  // 4. Handle Option Submission
+  // 5. Submit Option
   const handleSelectOption = async (optionNum: number) => {
     if (isSubmitted || timeLeft <= 0 || submitting || !participant?.id || !currentQuestion?.id) {
       return;
@@ -177,19 +189,13 @@ export default function PlayPage() {
         },
       ]);
 
-      if (error) {
-        // If unique constraint already exists, just mark submitted
-        if (error.code === '23505') {
-          setIsSubmitted(true);
-        } else {
-          throw error;
-        }
-      } else {
-        setIsSubmitted(true);
+      if (error && error.code !== '23505') {
+        throw error;
       }
+      setIsSubmitted(true);
     } catch (err: any) {
       console.error('Answer submission error:', err);
-      setErrorMsg(err.message || 'Failed to record answer. Please try again.');
+      setErrorMsg(err.message || 'Failed to submit answer.');
     } finally {
       setSubmitting(false);
     }
@@ -212,7 +218,7 @@ export default function PlayPage() {
 
   return (
     <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col justify-between p-4 sm:p-6 max-w-xl mx-auto">
-      {/* Top Participant Status Header */}
+      {/* Top Header */}
       <div className="bg-[#131b2e] border border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-lg">
         <div className="flex items-center gap-3">
           <div
@@ -248,10 +254,10 @@ export default function PlayPage() {
         </button>
       </div>
 
-      {/* Main Play Body */}
+      {/* Main Container */}
       <div className="my-auto py-6">
         {!quizLive || activeQuestionIdx <= 0 || !currentQuestion ? (
-          /* WAITING ROOM SCREEN */
+          /* WAITING ROOM */
           <div className="bg-[#131b2e] border border-slate-800 p-8 rounded-3xl text-center space-y-4 shadow-2xl">
             <div className="w-16 h-16 mx-auto rounded-3xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
               <Sparkles className="w-8 h-8 animate-pulse" />
@@ -264,13 +270,12 @@ export default function PlayPage() {
             </div>
             <div className="inline-flex items-center gap-2 bg-slate-900/60 border border-slate-800 px-4 py-2 rounded-full text-xs text-slate-400">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span>Ready for Team {participant?.team_id}</span>
+              <span>Connected as Team {participant?.team_id}</span>
             </div>
           </div>
         ) : (
-          /* ACTIVE QUESTION SCREEN */
+          /* ACTIVE QUESTION */
           <div className="space-y-5">
-            {/* Question Card & Countdown */}
             <div className="bg-[#131b2e] border border-slate-800 p-6 rounded-3xl shadow-2xl space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">
@@ -294,7 +299,6 @@ export default function PlayPage() {
               </h2>
             </div>
 
-            {/* Answer Options */}
             <div className="space-y-3">
               {[
                 { num: 1, text: currentQuestion.option_1 },
@@ -339,7 +343,6 @@ export default function PlayPage() {
               })}
             </div>
 
-            {/* Status Footer */}
             {isSubmitted && (
               <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs p-3 rounded-xl flex items-center justify-center gap-2">
                 <CheckCircle className="w-4 h-4" />
@@ -363,7 +366,6 @@ export default function PlayPage() {
         )}
       </div>
 
-      {/* Footer Branding */}
       <div className="text-center text-[11px] text-slate-600 pt-4">
         Workplace Live Quiz • Team Vibe vs Team Tribe
       </div>
