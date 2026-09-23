@@ -42,7 +42,6 @@ export default function AdminDashboardPage() {
     fetchParticipantCount();
     fetchTeamScores();
 
-    // Listen to changes on participants and answers to re-fetch view rankings
     const pChannel = supabase
       .channel('admin_dash_participants_ch')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, () => {
@@ -76,7 +75,7 @@ export default function AdminDashboardPage() {
   };
 
   const fetchQuizState = async () => {
-    const { data } = await supabase.from('quiz_state').select('*');
+    const { data } = await supabase.from('quiz_state').select('*').limit(1);
     if (data && data.length > 0) {
       setQuizState(data[0]);
       if (data[0].timer_duration) {
@@ -90,7 +89,6 @@ export default function AdminDashboardPage() {
     setParticipantsCount(count || 0);
   };
 
-  // Queries the SQL View directly
   const fetchTeamScores = async () => {
     const { data, error } = await supabase
       .from('team_scores')
@@ -106,8 +104,8 @@ export default function AdminDashboardPage() {
     setLoading(true);
     const nowIso = new Date().toISOString();
     const targetIdx = q.question_number ? Number(q.question_number) : index + 1;
-    const rowId = quizState?.id || '1786577f-3af7-4f70-872f-164d6e8a6b2f';
 
+    // Use neq filter with an impossible value to update all rows in the singleton table without requiring an 'id' column
     const { data, error } = await supabase
       .from('quiz_state')
       .update({ 
@@ -117,7 +115,7 @@ export default function AdminDashboardPage() {
         timer_duration: timerDuration,
         updated_at: nowIso
       })
-      .eq('id', rowId)
+      .neq('active_question_index', -9999)
       .select();
 
     if (error) {
@@ -131,8 +129,6 @@ export default function AdminDashboardPage() {
 
   const setWaitingState = async () => {
     setLoading(true);
-    const rowId = quizState?.id || '1786577f-3af7-4f70-872f-164d6e8a6b2f';
-
     const { data, error } = await supabase
       .from('quiz_state')
       .update({ 
@@ -141,7 +137,7 @@ export default function AdminDashboardPage() {
         question_start_time: null,
         updated_at: new Date().toISOString()
       })
-      .eq('id', rowId)
+      .neq('active_question_index', -9999)
       .select();
 
     if (!error && data && data.length > 0) setQuizState(data[0]);
@@ -150,8 +146,6 @@ export default function AdminDashboardPage() {
 
   const endQuiz = async () => {
     setLoading(true);
-    const rowId = quizState?.id || '1786577f-3af7-4f70-872f-164d6e8a6b2f';
-
     const { data, error } = await supabase
       .from('quiz_state')
       .update({ 
@@ -160,7 +154,7 @@ export default function AdminDashboardPage() {
         question_start_time: null,
         updated_at: new Date().toISOString()
       })
-      .eq('id', rowId)
+      .neq('active_question_index', -9999)
       .select();
 
     if (!error && data && data.length > 0) setQuizState(data[0]);
