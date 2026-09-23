@@ -46,11 +46,15 @@ export default function HomePage() {
     setLoading(true);
 
     try {
+      // Derive display name from email (e.g., "alex" from "alex@company.com")
+      const fallbackDisplayName = trimmedEmail.split('@')[0];
+
       const { data, error: insertError } = await supabase
         .from('participants')
         .insert([
           {
             email: trimmedEmail,
+            display_name: fallbackDisplayName,
             team_id: teamChoice,
             team_name: teamChoice === 'V' ? 'Vibe' : 'Tribe',
             created_at: new Date().toISOString(),
