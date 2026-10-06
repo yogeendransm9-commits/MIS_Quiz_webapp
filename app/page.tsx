@@ -3,7 +3,18 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Sparkles, Users, ShieldCheck, ArrowRight, ArrowLeft, Copy, Check, Mail, Loader2, Sparkle } from 'lucide-react';
+import { 
+  Sparkles, 
+  Users, 
+  ShieldCheck, 
+  ArrowRight, 
+  ArrowLeft, 
+  Copy, 
+  Check, 
+  Mail, 
+  Loader2, 
+  Crown 
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
@@ -14,8 +25,8 @@ export default function HomePage() {
   const [copied, setCopied] = useState(false);
 
   // Form State
+  const [role, setRole] = useState<'participant' | 'leader'>('participant');
   const [email, setEmail] = useState('');
-  const [teamChoice, setTeamChoice] = useState<'V' | 'T'>('V');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -32,6 +43,14 @@ export default function HomePage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const detectLeaderName = (emailStr: string): 'Charles' | 'Nandita' | 'Rajeev' | null => {
+    const lower = emailStr.toLowerCase();
+    if (lower.includes('charles')) return 'Charles';
+    if (lower.includes('nandita')) return 'Nandita';
+    if (lower.includes('rajeev')) return 'Rajeev';
+    return null;
+  };
+
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -39,27 +58,43 @@ export default function HomePage() {
     const trimmedEmail = email.trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(trimmedEmail)) {
-      setError('Please enter a valid email address');
+      setError('Please enter a valid work email address');
       return;
+    }
+
+    let participantPayload: any = {};
+
+    if (role === 'leader') {
+      const leaderName = detectLeaderName(trimmedEmail);
+      if (!leaderName) {
+        setError('Could not identify leader. Email must contain Charles, Nandita, or Rajeev.');
+        return;
+      }
+
+      participantPayload = {
+        role: 'leader',
+        leader_id: leaderName,
+        display_name: leaderName,
+        email: trimmedEmail,
+        created_at: new Date().toISOString(),
+      };
+    } else {
+      const fallbackDisplayName = trimmedEmail.split('@')[0];
+
+      participantPayload = {
+        role: 'participant',
+        email: trimmedEmail,
+        display_name: fallbackDisplayName,
+        created_at: new Date().toISOString(),
+      };
     }
 
     setLoading(true);
 
     try {
-      // Derive display name from email (e.g., "alex" from "alex@company.com")
-      const fallbackDisplayName = trimmedEmail.split('@')[0];
-
       const { data, error: insertError } = await supabase
         .from('participants')
-        .insert([
-          {
-            email: trimmedEmail,
-            display_name: fallbackDisplayName,
-            team_id: teamChoice,
-            team_name: teamChoice === 'V' ? 'Vibe' : 'Tribe',
-            created_at: new Date().toISOString(),
-          },
-        ])
+        .insert([participantPayload])
         .select()
         .single();
 
@@ -82,7 +117,7 @@ export default function HomePage() {
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-1.5 rounded-full text-indigo-400 font-semibold text-xs mb-1">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Workplace Live Quiz</span>
+              <span>Live Executive Quiz</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">Scan or Click to Join</h1>
             <p className="text-xs sm:text-sm text-slate-400">
@@ -120,7 +155,7 @@ export default function HomePage() {
               className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-6 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20"
             >
               <Users className="w-4 h-4" />
-              <span>Join as Participant</span>
+              <span>Enter Quiz Arena</span>
               <ArrowRight className="w-4 h-4" />
             </Button>
 
@@ -130,7 +165,7 @@ export default function HomePage() {
                 className="w-full border-slate-800 bg-[#131b2e] hover:bg-slate-800 text-slate-300 font-semibold py-6 rounded-xl text-sm flex items-center justify-center gap-2"
               >
                 <ShieldCheck className="w-4 h-4 text-indigo-400" />
-                <span>Admin Portal</span>
+                <span>Admin Host Panel</span>
               </Button>
             </Link>
           </div>
@@ -145,72 +180,58 @@ export default function HomePage() {
             <ArrowLeft className="w-3.5 h-3.5" /> Back to QR Code
           </button>
 
-          <div className="flex justify-center">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-              <Sparkles className="w-6 h-6" />
-            </div>
-          </div>
-
           <div className="text-center space-y-1">
             <h1 className="text-2xl font-bold tracking-tight text-white">Join the Quiz</h1>
-            <p className="text-xs text-slate-400">Choose your team and enter your corporate email</p>
+            <p className="text-xs text-slate-400">Select your role and enter your work email</p>
+          </div>
+
+          {/* Role Toggle */}
+          <div className="grid grid-cols-2 gap-2 bg-[#0b0f19] p-1.5 rounded-2xl border border-slate-800">
+            <button
+              type="button"
+              onClick={() => { setRole('participant'); setError(''); }}
+              className={`py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                role === 'participant'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" /> Participant
+            </button>
+            <button
+              type="button"
+              onClick={() => { setRole('leader'); setError(''); }}
+              className={`py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                role === 'leader'
+                  ? 'bg-amber-500 text-black shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Crown className="w-3.5 h-3.5" /> Leader
+            </button>
           </div>
 
           <form onSubmit={handleJoin} className="space-y-5">
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Email ID
+                {role === 'leader' ? 'Leader Email ID' : 'Participant Email ID'}
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="email"
-                  placeholder="name@company.com"
+                  placeholder={role === 'leader' ? 'leader.name@company.com' : 'your.name@company.com'}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   className="w-full bg-[#0b0f19] border border-slate-800 focus:border-indigo-500 focus:outline-none rounded-xl pl-10 pr-4 py-3 text-sm text-white placeholder-slate-600 transition-colors"
                 />
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Select Your Team
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setTeamChoice('V')}
-                  className={`p-3.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${
-                    teamChoice === 'V'
-                      ? 'bg-purple-600/20 border-purple-500 text-purple-300 ring-2 ring-purple-500/30 shadow-lg shadow-purple-500/10'
-                      : 'bg-[#0b0f19] border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-extrabold text-base">Team V</span>
-                    <Sparkle className="w-3.5 h-3.5" />
-                  </div>
-                  <span className="text-xs font-semibold">Vibe</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTeamChoice('T')}
-                  className={`p-3.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${
-                    teamChoice === 'T'
-                      ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/30 shadow-lg shadow-emerald-500/10'
-                      : 'bg-[#0b0f19] border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-extrabold text-base">Team T</span>
-                    <Users className="w-3.5 h-3.5" />
-                  </div>
-                  <span className="text-xs font-semibold">Tribe</span>
-                </button>
-              </div>
+              {role === 'leader' && (
+                <p className="text-[11px] text-amber-400/80">
+                  Recognizes Charles, Nandita, or Rajeev automatically.
+                </p>
+              )}
             </div>
 
             {error && (
@@ -222,14 +243,20 @@ export default function HomePage() {
             <Button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-6 rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/20"
+              className={`w-full py-6 rounded-xl text-sm font-semibold transition-all shadow-lg ${
+                role === 'leader'
+                  ? 'bg-amber-500 hover:bg-amber-400 text-black font-bold shadow-amber-500/20'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20'
+              }`}
             >
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Entering Room...
                 </>
+              ) : role === 'leader' ? (
+                'Enter as Leader'
               ) : (
-                `Enter as Team ${teamChoice} (${teamChoice === 'V' ? 'Vibe' : 'Tribe'})`
+                'Enter as Participant'
               )}
             </Button>
           </form>
