@@ -11,7 +11,7 @@ import {
   LogOut, 
   Loader2, 
   Users,
-  Sparkle
+  Crown
 } from 'lucide-react';
 
 interface Question {
@@ -22,8 +22,7 @@ interface Question {
   option_2: string;
   option_3: string;
   option_4: string;
-  option_5?: string | null;
-  correct_option: number;
+  target_leader?: string | null;
 }
 
 export default function PlayPage() {
@@ -40,7 +39,6 @@ export default function PlayPage() {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [loadingInitial, setLoadingInitial] = useState<boolean>(true);
 
-  // Tracks the active broadcast timestamp and question number to detect transitions
   const lastBroadcastTimeRef = useRef<string | null>(null);
   const activeQuestionIdxRef = useRef<number>(0);
 
@@ -103,7 +101,6 @@ export default function PlayPage() {
       setActiveQuestionIdx(targetIdx);
 
       if (isLive && targetIdx > 0) {
-        // Detect a new broadcast event (either new question OR host re-broadcasted)
         const isNewBroadcast = 
           lastBroadcastTimeRef.current !== broadcastTime || 
           activeQuestionIdxRef.current !== targetIdx;
@@ -112,21 +109,16 @@ export default function PlayPage() {
           lastBroadcastTimeRef.current = broadcastTime;
           activeQuestionIdxRef.current = targetIdx;
 
-          // FIX 2: Reset submission lock completely for the new question
           setSelectedOption(null);
           setIsSubmitted(false);
           setSubmitting(false);
           setErrorMsg('');
-
-          // FIX 1: Set timer directly to configured duration, avoiding device clock skew
           setTimeLeft(configuredDuration);
 
-          // Fetch the question
           const qData = await fetchTargetQuestion(targetIdx);
           if (qData) {
             setCurrentQuestion(qData);
 
-            // Check if user previously submitted for THIS exact question
             const stored = localStorage.getItem('quiz_participant');
             const pId = stored ? JSON.parse(stored)?.id : participant?.id;
 
@@ -146,7 +138,6 @@ export default function PlayPage() {
           }
         }
       } else {
-        // Waiting room state
         lastBroadcastTimeRef.current = null;
         activeQuestionIdxRef.current = 0;
         setCurrentQuestion(null);
@@ -212,7 +203,6 @@ export default function PlayPage() {
       ]);
 
       if (error) {
-        // Code 23505 = already submitted for this question
         if (error.code === '23505') {
           setIsSubmitted(true);
         } else {
@@ -242,31 +232,33 @@ export default function PlayPage() {
     );
   }
 
-  const isTeamV = participant?.team_id === 'V';
+  const isLeader = participant?.role === 'leader';
+  const targetLeaderName = currentQuestion?.target_leader;
+  const isLeaderForThisQuestion = isLeader && participant?.leader_id === targetLeaderName;
 
   return (
     <div className="min-h-screen bg-[#0b0f19] text-white flex flex-col justify-between p-4 sm:p-6 max-w-xl mx-auto">
-      {/* Top Participant Status Header */}
+      {/* Top Header */}
       <div className="bg-[#131b2e] border border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-lg">
         <div className="flex items-center gap-3">
           <div
             className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg border ${
-              isTeamV
-                ? 'bg-purple-600/20 text-purple-300 border-purple-500/40'
-                : 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40'
+              isLeader
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                : 'bg-indigo-600/20 text-indigo-300 border-indigo-500/40'
             }`}
           >
-            {isTeamV ? <Sparkle className="w-5 h-5" /> : <Users className="w-5 h-5" />}
+            {isLeader ? <Crown className="w-5 h-5 text-amber-400" /> : <Users className="w-5 h-5" />}
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Team</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Role</span>
               <span
                 className={`text-xs font-extrabold px-2 py-0.5 rounded-md ${
-                  isTeamV ? 'bg-purple-500/20 text-purple-300' : 'bg-emerald-500/20 text-emerald-300'
+                  isLeader ? 'bg-amber-500/20 text-amber-300' : 'bg-indigo-500/20 text-indigo-300'
                 }`}
               >
-                {isTeamV ? 'V (Vibe)' : 'T (Tribe)'}
+                {isLeader ? `Leader (${participant?.display_name})` : 'Participant'}
               </span>
             </div>
             <p className="text-xs text-slate-400 truncate max-w-[180px] sm:max-w-xs">{participant?.email}</p>
@@ -282,7 +274,7 @@ export default function PlayPage() {
         </button>
       </div>
 
-      {/* Main Play Area */}
+      {/* Main Container */}
       <div className="my-auto py-6">
         {!quizLive || activeQuestionIdx <= 0 || !currentQuestion ? (
           /* WAITING ROOM */
@@ -298,16 +290,17 @@ export default function PlayPage() {
             </div>
             <div className="inline-flex items-center gap-2 bg-slate-900/60 border border-slate-800 px-4 py-2 rounded-full text-xs text-slate-400">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span>Connected as Team {participant?.team_id}</span>
+              <span>{isLeader ? `Connected as Leader: ${participant?.display_name}` : 'Connected as Participant'}</span>
             </div>
           </div>
         ) : (
           /* ACTIVE QUESTION */
           <div className="space-y-5">
             <div className="bg-[#131b2e] border border-slate-800 p-6 rounded-3xl shadow-2xl space-y-4">
+              {/* Question Number & Timer */}
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">
-                  Question {currentQuestion.question_number || activeQuestionIdx}
+                  Question {currentQuestion.question_number || activeQuestionIdx} of 15
                 </span>
 
                 <div
@@ -322,19 +315,37 @@ export default function PlayPage() {
                 </div>
               </div>
 
+              {/* TARGET LEADER BANNER */}
+              {targetLeaderName && (
+                <div
+                  className={`p-3 rounded-xl border flex items-center gap-2.5 text-xs sm:text-sm font-bold ${
+                    isLeaderForThisQuestion
+                      ? 'bg-amber-500/20 border-amber-500 text-amber-200'
+                      : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-200'
+                  }`}
+                >
+                  <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>
+                    {isLeaderForThisQuestion
+                      ? `This is your question, ${targetLeaderName}! Pick your true choice:`
+                      : `Target Leader: ${targetLeaderName} — Guess what ${targetLeaderName} picks!`}
+                  </span>
+                </div>
+              )}
+
+              {/* Question Text */}
               <h2 className="text-lg sm:text-xl font-semibold text-slate-100 leading-snug">
                 {currentQuestion.question_text}
               </h2>
             </div>
 
-            {/* Answer Options */}
+            {/* Exactly 4 Options */}
             <div className="space-y-3">
               {[
                 { num: 1, text: currentQuestion.option_1 },
                 { num: 2, text: currentQuestion.option_2 },
                 { num: 3, text: currentQuestion.option_3 },
                 { num: 4, text: currentQuestion.option_4 },
-                ...(currentQuestion.option_5 ? [{ num: 5, text: currentQuestion.option_5 }] : []),
               ].map((opt) => {
                 const isSelected = selectedOption === opt.num;
                 const isDisabled = isSubmitted || timeLeft <= 0 || submitting;
@@ -376,7 +387,11 @@ export default function PlayPage() {
             {isSubmitted && (
               <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs p-3 rounded-xl flex items-center justify-center gap-2">
                 <CheckCircle className="w-4 h-4" />
-                <span>Answer submitted! Waiting for next question...</span>
+                <span>
+                  {isLeaderForThisQuestion
+                    ? 'Your choice is locked! Scoring all participants against this...'
+                    : 'Choice locked in! Waiting for next question...'}
+                </span>
               </div>
             )}
 
@@ -397,7 +412,7 @@ export default function PlayPage() {
       </div>
 
       <div className="text-center text-[11px] text-slate-600 pt-4">
-        Workplace Live Quiz • Team Vibe vs Team Tribe
+        Leadership Edition Live Quiz • Match the Leader
       </div>
     </div>
   );
